@@ -224,7 +224,21 @@ function Rail({ onPalette }: { onPalette: () => void }) {
   const song = useStore((s) => s.song);
   const status = useStatus();
   const [clockFmt, setClockFmt] = useState<"bars" | "minsec">("bars");
-  const [tempoOpen, setTempoOpen] = useState(false);
+  const [confirmNew, setConfirmNew] = useState(false);
+
+  // P-04: inline two-step confirm replaces the native blocking dialog (auto-cancels, Esc cancels)
+  useEffect(() => {
+    if (!confirmNew) return;
+    const t = window.setTimeout(() => setConfirmNew(false), 3000);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirmNew(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [confirmNew]);
 
   return (
     <div className="rail">
@@ -241,13 +255,18 @@ function Rail({ onPalette }: { onPalette: () => void }) {
           Load
         </button>
         <button
-          className="grain-btn small"
+          className={`grain-btn small ${confirmNew ? "toggle-on" : ""}`}
           onClick={() => {
-            if (window.confirm("Start a new Song? The current one is kept until saved over.")) cmdNewSong();
+            if (confirmNew) {
+              setConfirmNew(false);
+              cmdNewSong();
+            } else {
+              setConfirmNew(true);
+            }
           }}
-          title="New Song"
+          title="New Song — click again to confirm"
         >
-          New
+          {confirmNew ? "Sure?" : "New"}
         </button>
       </div>
 
@@ -287,7 +306,6 @@ function Rail({ onPalette }: { onPalette: () => void }) {
         >
           {clockFmt === "bars" ? ticksToBarBeat(status.playheadTick, song.qpm) : ticksToMinSec(status.playheadTick, song.qpm)}
         </button>
-        {tempoOpen && null}
       </div>
 
       <TempoControl qpm={song.qpm} />
