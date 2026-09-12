@@ -1,0 +1,24 @@
+# TASKS — append-only (status: TODO / DOING / DONE / BLOCKED / DROPPED + ADR)
+
+- [ ] TASK-000 M1: projection audit (Refs: SB-002 §3, P-05) — STATUS: DONE
+- [ ] TASK-001 M1: constitutional bootstrap (Refs: Genesis §22.2, §31.4) — STATUS: DONE
+- [ ] TASK-002 M1: first-light 12-item checklist (Refs: §32, AG-02) — STATUS: DONE
+- [ ] TASK-003 M1: ADR-0001 + ADR-0002 committed verbatim + INDEX (Refs: Genesis §26.3) — STATUS: DONE
+- [ ] TASK-004 M1: fix first-light FAILs — FL-06 seed PRNG, FL-07 meter gradient, FL-08 local fonts, FL-09 confirm→non-modal (Refs: AG-01, C-07) — STATUS: DONE
+- [ ] TASK-005 M1: OPFS persistence migration (Refs: P-20, ADR-0002 §3; prereq TASK-007) — STATUS: TODO
+- [ ] TASK-006 M1: undo past reload — persist history with autosave (Refs: P-06) — STATUS: TODO
+- [ ] TASK-007 M1: microphone recording slice — getUserMedia pro defaults, worklet ring buffer, LR-#### permission panel, monitor default off (Refs: P-02, P-14) — STATUS: TODO
+- [ ] TASK-008 M1: render determinism — E-28 double-export checksum, documented scope (Refs: E-28, P-08) — STATUS: TODO
+- [ ] TASK-009 M1: command inventory table — id | pointer | key | palette; fix gaps (Refs: P-11) — STATUS: DOING
+- [ ] TASK-010 M1: P-02 rehearsal — fresh-state reset definition + timed journey (Refs: P-02) — STATUS: DOING
+- [ ] TASK-011 M1: engine audit orphan ORPH-A-1 — p.gain never reaches audio path (Refs: TASK-000 audit) — STATUS: TODO
+- [ ] TASK-012 M1: engine audit orphan ORPH-A-2 — placement.mute ignored in renderWav (Refs: TASK-000 audit) — STATUS: TODO
+- [ ] TASK-013 M1: engine audit orphan ORPH-B-1 — metronome/count-in constants unpersisted (Refs: TASK-000 audit; needs song+model field) — STATUS: TODO
+- [ ] TASK-014 M1: engine audit orphan ORPH-D-1 — renderWav omits cycle material (Refs: TASK-000 audit; parity with scheduleRange) — STATUS: TODO
+- [ ] TASK-015 M1: engine audit orphan ORPH-D-2 — offline render drops DynamicsCompressor attack/release constants (Refs: TASK-000 audit) — STATUS: TODO
+- [ ] TASK-016 M1: worklet underrun counter wiring — status.underruns never increments (Refs: E-21, P-07; blocked: no runtime/AudioWorklet verification possible) — STATUS: BLOCKED (needs HV runtime)
+- [ ] TASK-017 M1: xrun/taskset real-time discipline gates (Refs: ADR-0001; activates at Tauri shell) — STATUS: DROPPED + ADR-0001 (preview layer inherits spirit, not letter)
+- [ ] TASK-009 M1: command inventory table — id | pointer | key | palette; fix gaps (Refs: P-11) — STATUS: DONE (table in WORKLOG §SB-002)
+- [ ] TASK-010 M1: P-02 rehearsal — fresh-state reset definition + timed journey (Refs: P-02) — STATUS: DONE (reset defined; stopwatch step routed to HV-3)
+- [ ] TASK-018 M1: wrap coach localStorage key write in visible failure handling (Refs: P-14; minor, found in FL-11) — STATUS: TODO
+- [ ] TASK-019 M1: command-coverage gaps from inventory: keys for Load/Export, pointer affordances for Undo/Redo/snap, Del binding for placement delete, palette rows for duplicate/delete placement (Refs: P-11) — STATUS: TODO
