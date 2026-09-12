@@ -85,6 +85,7 @@ export interface Song {
   id: string;
   name: string;
   qpm: number;
+  seed: number; // synthesis PRNG seed — E-28 deterministic render (additive, schema-compatible)
   tracks: Track[];
   clips: Clip[];
   placements: Placement[];
@@ -99,6 +100,19 @@ export const BAR = TPQ * 4;
 export const STEPS_PER_BAR = 16;
 export const STEP_TICKS = BAR / STEPS_PER_BAR;
 export const MAX_UNDO_STEPS = 200; // §10.2 caps at 10k; web build trims for memory
+export const SEED_DEFAULT = 0x9e3779b9; // golden-ratio default seed (E-28)
+
+/* mulberry32 — tiny seeded PRNG for synthesis noise (E-28). Unseeded entropy
+   sources are banned in synthesis paths. */
+export function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 export function ticksToBarBeat(tick: number, qpm: number): string {
   const bar = Math.floor(tick / BAR) + 1;
@@ -128,7 +142,7 @@ export const uid = (() => {
   };
 })();
 
-/* A curated 16-swatch track palette (§6.3.4) — warm, no purple/indigo/violet (G-12). */
+/* A curated 16-swatch track palette (§6.3.4) — warm hues only, per the G-12 forbidden-list. */
 export const TRACK_PALETTE = [
   "#4E6E7E", "#5C6B4A", "#C1551F", "#8A6B48", "#A84E32", "#5E7258",
   "#7C6A55", "#6E5E4E", "#54735E", "#96652E", "#44584F", "#7A4E3E",

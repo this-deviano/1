@@ -3,7 +3,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { Clip, InstrumentId, Note, Placement, Song, Track } from "./model";
-import { MAX_UNDO_STEPS, uid } from "./model";
+import { MAX_UNDO_STEPS, SEED_DEFAULT, uid } from "./model";
 
 export interface ClipPlacement extends Placement {
   clipObj: Clip;
@@ -49,6 +49,7 @@ function makeEmptySong(): Song {
     id: uid("song"),
     name: "Untitled Song",
     qpm: 120,
+    seed: SEED_DEFAULT,
     tracks: [],
     clips: [],
     placements: [],
