@@ -4,7 +4,8 @@
    No GC churn on the hot path: voices are pooled per fire. */
 
 import type { Clip, Song, Track } from "./model";
-import { mulberry32, SEED_DEFAULT, TPQ } from "./model";
+import { SEED_DEFAULT, TPQ } from "./model";
+import { seedStream, STREAM_TAGS } from "./seed";
 
 const LOOKAHEAD_S = 0.12;
 const TIMER_MS = 25;
@@ -45,7 +46,7 @@ class LuthierEngine {
   private song: Song | null = null;
   private tickAtLastSchedule = 0;
   private lastLoopWrap = 0;
-  private rng: () => number = mulberry32(SEED_DEFAULT); // E-28: seeded synthesis noise
+  private rng: () => number = seedStream(SEED_DEFAULT, STREAM_TAGS.LIVE_NOISE); // E-28/E-003: seeded synthesis noise
 
   // live capture (§17.4 spirit): last N recorded events
   capture: { pitch: number; vel: number; tick: number }[] = [];
@@ -92,7 +93,7 @@ class LuthierEngine {
   async play(fromTick?: number) {
     const ctx = await this.ensure();
     if (ctx.state === "suspended") await ctx.resume();
-    this.rng = mulberry32(this.song?.seed ?? SEED_DEFAULT); // re-seed per transport start (E-28)
+    this.rng = seedStream(this.song?.seed ?? SEED_DEFAULT, STREAM_TAGS.LIVE_NOISE); // re-seed per transport start (E-28/E-003: same stream tag → same sequence)
     if (this.playing) this.stopScheduling();
     this.playing = true;
     this.startTick = fromTick ?? this.status.playheadTick;
@@ -491,7 +492,7 @@ class LuthierEngine {
     const secPerTick = 60 / song.qpm / TPQ;
     const total = Math.max(1, lenTicks * secPerTick + tailSeconds);
     const ctx = new OfflineAudioContext(2, Math.ceil(total * sr), sr);
-    this.rng = mulberry32(song.seed ?? SEED_DEFAULT); // deterministic offline render (E-28)
+    this.rng = seedStream(song.seed ?? SEED_DEFAULT, STREAM_TAGS.OFFLINE_NOISE); // deterministic offline render (E-28/E-003)
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -6;
     comp.ratio.value = 4;
