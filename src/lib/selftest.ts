@@ -43,6 +43,12 @@ export interface DeterminismResult {
   hashA: string;
   hashB: string;
   bitIdentical: boolean;
+  /* Measured divergence, so a FAIL is diagnosable instead of a bare red light
+     (P-07). `ok` stays BIT-EXACT — the tolerance question is a constitution
+     matter (AMM-003-candidate), never a silent gate widening. */
+  maxAbsDiff: number;
+  dbfs: number;
+  samples: number;
 }
 
 /* R-2 dual threshold (SB-004).
@@ -77,8 +83,10 @@ export async function selfTestRenderParity(): Promise<ParityResult> {
   const savedCtx = engine.ctx;
   const savedComp = engine.comp;
   const savedRng = engine.rngForTest();
-  const { comp: compL } = engine.buildMasterGraph(ctxLive);
-  compL.connect(ctxLive.destination);
+  // The guard's live leg must be the SAME bus the user hears: comp → master → out.
+  const { comp: compL, master: masterL } = engine.buildMasterGraph(ctxLive);
+  compL.connect(masterL);
+  masterL.connect(ctxLive.destination);
   engine.ctx = ctxLive as unknown as AudioContext;
   engine.comp = compL;
   engine.setTestRng(seedStream(song.seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE));
@@ -129,11 +137,48 @@ export async function selfTestRenderParity(): Promise<ParityResult> {
   };
 }
 
+function channelDiff(a: AudioBuffer, b: AudioBuffer): { maxDiff: number; samples: number } {
+  const da = a.getChannelData(0);
+  const db = b.getChannelData(0);
+  const n = Math.min(da.length, db.length);
+  let maxDiff = 0;
+  for (let i = 0; i < n; i++) {
+    const d = Math.abs(da[i] - db[i]);
+    if (d > maxDiff) maxDiff = d;
+  }
+  return { maxDiff, samples: n };
+}
+
 export async function selfTestDeterminism(): Promise<DeterminismResult> {
   const song: Song = engine.song ?? makeFactorySong();
   const a = await engine.renderBuffer(song, 1.5);
   const b = await engine.renderBuffer(song, 1.5);
   const hashA = await digestBuffer(a);
   const hashB = await digestBuffer(b);
-  return { ok: hashA === hashB, hashA, hashB, bitIdentical: hashA === hashB };
+  const { maxDiff, samples } = channelDiff(a, b);
+  const bitIdentical = hashA === hashB;
+  return {
+    ok: bitIdentical,
+    hashA,
+    hashB,
+    bitIdentical,
+    maxAbsDiff: maxDiff,
+    dbfs: bitIdentical ? Number.NEGATIVE_INFINITY : 20 * Math.log10(Math.max(maxDiff, 1e-12)),
+    samples,
+  };
+}
+
+/** Diagnostic (TASK-021 harness), NOT a gate: render the same Song N times and
+    report every hash plus each run's max|Δ| against run 0. Separates a one-time
+    warm-up artifact from true nondeterminism, so the AMM-003 question can be
+    answered with numbers instead of opinions (P-07). */
+export async function selfTestDeterminismRuns(runs: number): Promise<{ hashes: string[]; maxDiffVsFirst: number[]; sameAsFirst: boolean[] }> {
+  const song: Song = engine.song ?? makeFactorySong();
+  const n = Math.max(2, Math.min(6, Math.floor(runs)));
+  const bufs: AudioBuffer[] = [];
+  for (let i = 0; i < n; i++) bufs.push(await engine.renderBuffer(song, 1.5));
+  const hashes: string[] = [];
+  for (const b of bufs) hashes.push(await digestBuffer(b));
+  const maxDiffVsFirst = bufs.map((b) => channelDiff(bufs[0], b).maxDiff);
+  return { hashes, maxDiffVsFirst, sameAsFirst: hashes.map((h) => h === hashes[0]) };
 }

@@ -785,7 +785,20 @@ export async function cmdFinishTake(): Promise<void> {
     setState({ micError: "LR-0007: the recorded take had no audio track to land on." });
     return;
   }
-  const bytes = pcmWavFloat32(took.samples, micCapture.sampleRate);
+
+  // Capture starts at arm time, so the take opens with the 4-beat count-in. The
+  // count-in is a transport aid, not song material (audit row B-5), so it is
+  // trimmed from the front and the honest duration/peak are recomputed (P-07).
+  const countInS = (60 / Math.max(1, st.song.qpm)) * 4;
+  const trim = Math.round(countInS * micCapture.sampleRate);
+  const samples = trim > 0 && trim < took.samples.length ? took.samples.subarray(trim) : took.samples;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i]);
+    if (a > peak) peak = a;
+  }
+  const durationS = samples.length / micCapture.sampleRate;
+  const bytes = pcmWavFloat32(samples, micCapture.sampleRate);
   const sha = await sha256Hex(bytes);
   const written = await writeMedia(bytes, sha);
   if (!written.ok) {
@@ -795,7 +808,7 @@ export async function cmdFinishTake(): Promise<void> {
   }
 
   // ticks are derived from the model's tempo, so the clip length is musical truth
-  const ticks = Math.max(STEP_TICKS, Math.round(took.durationS * (st.song.qpm / 60) * TPQ));
+  const ticks = Math.max(STEP_TICKS, Math.round(durationS * (st.song.qpm / 60) * TPQ));
   const takeNo = st.song.clips.filter((c) => c.kind === "audio").length + 1;
   const clip: Clip = {
     id: uid("clp"),
@@ -805,7 +818,7 @@ export async function cmdFinishTake(): Promise<void> {
     color: track.color,
     notes: [],
     pattern: null,
-    media: { sha, bytes: written.value.bytes, durationS: took.durationS, sampleRate: micCapture.sampleRate, channels: 1 },
+    media: { sha, bytes: written.value.bytes, durationS, sampleRate: micCapture.sampleRate, channels: 1 },
   };
   const start = snapToStep(engine.startTick);
   mutate((s) => {
@@ -814,10 +827,10 @@ export async function cmdFinishTake(): Promise<void> {
   });
   setState({
     micError: null,
-    lastTake: { sha, bytes: written.value.bytes, durationS: took.durationS, peak: took.peak },
+    lastTake: { sha, bytes: written.value.bytes, durationS, peak },
   });
   toast(
-    `Audio take captured — ${took.durationS.toFixed(2)} s, peak ${took.peak.toFixed(3)} → media/${sha.slice(0, 12)}….`,
+    `Audio take captured — ${durationS.toFixed(2)} s (count-in trimmed), peak ${peak.toFixed(3)} → media/${sha.slice(0, 12)}….`,
     "ok"
   );
 }

@@ -416,8 +416,13 @@ class LuthierEngine {
     const total = Math.max(1, lenTicks * secPerTick + tailSeconds);
     const ctx = new OfflineAudioContext(2, Math.ceil(total * EXPORT_SR), EXPORT_SR);
     this.rng = seedStream(song.seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE); // deterministic offline render (E-28/E-003, same NOISE source tag)
-    const { comp } = this.buildMasterGraph(ctx);
-    comp.connect(ctx.destination);
+    // TASK-015 CORRECTION (found by the SB-004 harness): the offline bus must run
+    // the SAME master chain as live — comp → master(MASTER_GAIN) → destination.
+    // The previous `const { comp }` dropped the master gain entirely, so exports
+    // came out +0.92 dB hotter than what the user hears (P-15 violation).
+    const { comp, master } = this.buildMasterGraph(ctx);
+    comp.connect(master);
+    master.connect(ctx.destination);
 
     // fast-forward: fire every model event from the shared mapping at its absolute time
     const events = this.materialEvents(song, 0, lenTicks, secPerTick);
