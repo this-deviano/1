@@ -9,12 +9,13 @@
 
 import type { Song } from "./model";
 import { getState, undoStats } from "./store";
-import { engine } from "./engine";
+import { engine, PREROLL_S } from "./engine";
 import { getStatus } from "./status";
 import { cmdPersistHistory, cmdRestoreSnapshot, cmdToggleStep } from "./actions";
 import { selfTestDeterminismRuns } from "./selftest";
 import { readHistory, readMedia, sha256Hex, usageEstimate, opfsAvailable } from "./opfs";
 import { micCapture } from "./mic";
+import { analyzeWav } from "./forensics";
 
 export interface WavProbe {
   bytes: number;
@@ -147,6 +148,28 @@ const api = {
   edit: {
     toggleStep: (clipId: string, pitch: number, stepIdx: number) => cmdToggleStep(clipId, pitch, stepIdx),
   },
+  /** TASK-047/048 — the pure forensics module applied to real bytes.
+      Read-only by construction: the song path renders through the SAME
+      `engine.renderWav` the Rail's Export command calls, and the media path
+      reads through the SAME `readMedia` the harness already trusts. No new
+      authority, and no write path anywhere near the model. */
+  forensics: {
+    renderReference: async (expectedTrimMs: number = PREROLL_S * 1000) => {
+      try {
+        const blob = await engine.renderWav(getState().song);
+        const report = analyzeWav("reference-song-export", await blob.arrayBuffer(), { expectedTrimMs });
+        return { ok: true as const, report };
+      } catch (e) {
+        return { ok: false as const, error: e instanceof Error ? e.message : "offline render failed" };
+      }
+    },
+    media: async (sha: string, expectedTrimMs = 0) => {
+      const res = await readMedia(sha);
+      if (!res.ok) return { ok: false as const, error: res.error };
+      const report = analyzeWav(`media/${sha.slice(0, 12)}.wav`, res.value, { expectedTrimMs });
+      return { ok: true as const, report };
+    },
+  },
   freshState,
 };
 
@@ -167,5 +190,6 @@ export function installDevApi(): void {
   w.app.storage = api.storage;
   w.app.mic = api.mic;
   w.app.edit = api.edit;
+  w.app.forensics = api.forensics;
   w.app.freshState = api.freshState;
 }

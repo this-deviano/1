@@ -1,0 +1,231 @@
+{
+  "proxy": "PROXY — headless Chromium via playwright.launch, production bundle served by `vite preview`; the microphone is Chromium's fake media device (a synthetic tone), not hardware. The export is the app's own `engine.renderWav`; the take is the app's own trimmed WAV from OPFS media/.",
+  "thresholds": {
+    "maxAbsDc": 0.0001,
+    "maxClipped": 0,
+    "maxTrimOffsetMs": 50
+  },
+  "referenceSongExport": {
+    "label": "reference-song-export",
+    "fileBytes": 3388276,
+    "durationS": 9.603832199546485,
+    "frames": 423529,
+    "header": {
+      "fmtTag": 3,
+      "fmtTagName": "IEEE float",
+      "channels": 2,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "blockAlignDeclared": 8,
+      "blockAlignDerived": 8,
+      "byteRateDeclared": 352800,
+      "byteRateDerived": 352800,
+      "declaredFieldsConsistent": true,
+      "dataBytesDeclared": 3388232,
+      "dataBytesAvailable": 3388232,
+      "dataFitsFile": true
+    },
+    "perChannel": [
+      {
+        "index": 0,
+        "dcOffset": 0.00012032131249150445,
+        "dcDbfs": -78.39314878692548,
+        "dcSegments": [
+          0.0007076605,
+          0.0003696075,
+          -0.000217126,
+          -0.0002259989,
+          0.0002999367,
+          -0.0001030438,
+          0.0001315368,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0007076605385695702,
+        "dcSegmentsMatchingOverallSign": 4,
+        "dcConcentration": 5.881423032345463,
+        "truePeak": 1.208632230758667,
+        "truePeakDbfs": 1.645883429127397,
+        "clippedSamples": 250,
+        "samplesOverFullScale": 250,
+        "maxBoundaryDelta": 0.0688544511795044,
+        "maxBoundaryDeltaDbfs": -23.241359580120573,
+        "interiorP999": 0.05940839648246765,
+        "interiorP999Dbfs": -24.523043393878226,
+        "boundaryCount": 3309,
+        "outlierBoundaryCount": 5,
+        "outlierBoundaries": [
+          29184,
+          31872,
+          36352,
+          50944,
+          58752
+        ],
+        "expectedOutliersByChance": 3.309,
+        "latticeVerdict": "OUTLIER"
+      },
+      {
+        "index": 1,
+        "dcOffset": 0.00012032131249150445,
+        "dcDbfs": -78.39314878692548,
+        "dcSegments": [
+          0.0007076605,
+          0.0003696075,
+          -0.000217126,
+          -0.0002259989,
+          0.0002999367,
+          -0.0001030438,
+          0.0001315368,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0007076605385695702,
+        "dcSegmentsMatchingOverallSign": 4,
+        "dcConcentration": 5.881423032345463,
+        "truePeak": 1.208632230758667,
+        "truePeakDbfs": 1.645883429127397,
+        "clippedSamples": 250,
+        "samplesOverFullScale": 250,
+        "maxBoundaryDelta": 0.0688544511795044,
+        "maxBoundaryDeltaDbfs": -23.241359580120573,
+        "interiorP999": 0.05940839648246765,
+        "interiorP999Dbfs": -24.523043393878226,
+        "boundaryCount": 3309,
+        "outlierBoundaryCount": 5,
+        "outlierBoundaries": [
+          29184,
+          31872,
+          36352,
+          50944,
+          58752
+        ],
+        "expectedOutliersByChance": 3.309,
+        "latticeVerdict": "OUTLIER"
+      }
+    ],
+    "trim": {
+      "thresholdDbfs": -60,
+      "expectedMs": 50,
+      "firstAudibleMs": 55.98639455782313,
+      "offsetMs": 5.986394557823132,
+      "leadingSilenceMs": 55.98639455782313,
+      "trailingSilenceMs": 1324.467120181406
+    }
+  },
+  "fakeToneMicTake": {
+    "label": "media/1a55996ed66d.wav",
+    "fileBytes": 132784,
+    "durationS": 0.7524943310657597,
+    "frames": 33185,
+    "header": {
+      "fmtTag": 3,
+      "fmtTagName": "IEEE float",
+      "channels": 1,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "blockAlignDeclared": 4,
+      "blockAlignDerived": 4,
+      "byteRateDeclared": 176400,
+      "byteRateDerived": 176400,
+      "declaredFieldsConsistent": true,
+      "dataBytesDeclared": 132740,
+      "dataBytesAvailable": 132740,
+      "dataFitsFile": true
+    },
+    "perChannel": [
+      {
+        "index": 0,
+        "dcOffset": 0.023414193159560042,
+        "dcDbfs": -32.61041606354295,
+        "dcSegments": [
+          0.08124397,
+          0,
+          0,
+          0,
+          0,
+          0.1060752,
+          0,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.10607521697203472,
+        "dcSegmentsMatchingOverallSign": 2,
+        "dcConcentration": 4.5303810491852925,
+        "truePeak": 1,
+        "truePeakDbfs": 0,
+        "clippedSamples": 777,
+        "samplesOverFullScale": 0,
+        "maxBoundaryDelta": 0,
+        "maxBoundaryDeltaDbfs": null,
+        "interiorP999": 0,
+        "interiorP999Dbfs": null,
+        "boundaryCount": 259,
+        "outlierBoundaryCount": 0,
+        "outlierBoundaries": [],
+        "expectedOutliersByChance": 0.259,
+        "latticeVerdict": "WITHIN-INTERIOR-P999"
+      }
+    ],
+    "trim": {
+      "thresholdDbfs": -60,
+      "expectedMs": 0,
+      "firstAudibleMs": 0,
+      "offsetMs": 0,
+      "leadingSilenceMs": 0,
+      "trailingSilenceMs": 237.34693877551018
+    },
+    "sha": "1a55996ed66d7a9e10aaaec9123441bcf84827a3fe57c0cc76ac075b0be96dc5",
+    "modelDurationS": 0.7524943310657597
+  },
+  "parserCrossCheck": {
+    "independentReader": "window.app.storage.probeMedia → probeWav (TASK-021)",
+    "independentProbe": {
+      "bytes": 132784,
+      "channels": 1,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "frames": 33185,
+      "durationS": 0.7524943310657597,
+      "peak": 1,
+      "nonZeroSamples": 777,
+      "sha256": "1a55996ed66d7a9e10aaaec9123441bcf84827a3fe57c0cc76ac075b0be96dc5"
+    },
+    "agree": {
+      "channels": true,
+      "sampleRate": true,
+      "frames": true,
+      "truePeak": true
+    }
+  },
+  "evaluation": {
+    "export": {
+      "maxAbsDc": 0.00012032131249150445,
+      "clippedSamples": 500,
+      "latticeOutlierBoundaries": 10,
+      "trimOffsetMs": 5.986394557823132,
+      "dcPass": false,
+      "clipPass": false,
+      "latticePass": false,
+      "trimPass": true
+    },
+    "take": {
+      "maxAbsDc": 0.023414193159560042,
+      "clippedSamples": 777,
+      "latticeOutlierBoundaries": 0,
+      "trimOffsetMs": 0,
+      "dcPass": false,
+      "clipPass": false,
+      "latticePass": true,
+      "trimPass": true
+    }
+  },
+  "criteriaNotMet": [
+    "reference-song export ch0: |DC| 1.203e-4 exceeds 0.0001 (DC -78.39314878692548 dBFS; segment means [0.000708,0.00037,-0.000217,-0.000226,0.0003,-0.000103,0.000132,0], 4/8 share the overall sign, concentration 5.88)",
+    "reference-song export ch0: 250 sample(s) at or over full scale (250 strictly over; true peak 1.208632230758667 = 1.645883429127397 dBFS)",
+    "reference-song export ch0: 5 of 3309 lattice boundaries exceed the interior p99.9 [first at [29184,31872,36352,50944,58752]]; max boundary delta 0.0688544511795044 vs p99.9 0.05940839648246765 (≈3.31 outliers are expected by chance at this boundary count)",
+    "reference-song export ch1: |DC| 1.203e-4 exceeds 0.0001 (DC -78.39314878692548 dBFS; segment means [0.000708,0.00037,-0.000217,-0.000226,0.0003,-0.000103,0.000132,0], 4/8 share the overall sign, concentration 5.88)",
+    "reference-song export ch1: 250 sample(s) at or over full scale (250 strictly over; true peak 1.208632230758667 = 1.645883429127397 dBFS)",
+    "reference-song export ch1: 5 of 3309 lattice boundaries exceed the interior p99.9 [first at [29184,31872,36352,50944,58752]]; max boundary delta 0.0688544511795044 vs p99.9 0.05940839648246765 (≈3.31 outliers are expected by chance at this boundary count)",
+    "fake-tone take ch0: |DC| 2.341e-2 exceeds 0.0001 (DC -32.61041606354295 dBFS; segment means [0.0812,0,0,0,0,0.106,0,0], 2/8 share the overall sign, concentration 4.53)",
+    "fake-tone take ch0: 777 sample(s) at or over full scale (0 strictly over; true peak 1 = 0 dBFS)"
+  ],
+  "verdict": "FAIL",
+  "disclosure": "PROXY, and a deliberately limited one. The take is Chromium's fake media device, which emits a continuous synthetic tone: because the tone is present from the first captured sample, the trim check on the take is WEAK — it shows the take does not begin mid-count-in, not that the 4-beat trim is sample-aligned on real hardware. The trim check on the export is the meaningful one (the offline render's own PREROLL lead-in). Neither file has been heard by anyone: HV-DEFERRED-01 is narrowed, not cleared."
+}
