@@ -20,8 +20,22 @@ Either instrument is fine; both produce the same PR into `main`:
 - **Changes panel** (Freebuff): select `ratify/m1-exit` and open a pull request into `main`.
 - **GitHub UI**: `https://github.com/this-deviano/1/compare/main...ratify/m1-exit`
 
-Check before merging: the diff is **docs + `MILESTONE` only**. No source file changes. If you
-see anything under `src/`, stop and ask — that is not this branch's concern.
+**Expect a large PR, and that is the intent.** `origin/main` is still `ff21132`: the
+SB-002…SB-006 stack was merged locally (`02b5163`) but **never pushed to `main`** — SB-006
+deliberately left the `main` ref to the maintainer (E-007). So this PR delivers the whole M1
+exit unit (the SB-002…SB-006 code, tests, evidence and docs **plus** this branch's
+ratification artifacts), and merging it both ratifies M1 and lands it. A big diff is expected;
+a small one would mean the base branch is wrong.
+
+What is specific to *this* branch is docs-class only. Diff it directly to confirm:
+
+```sh
+git diff --stat origin/chore/sb007-closeout..origin/ratify/m1-exit
+#  MERGE-PLAN.md · MILESTONE · TASKS.md · docs/adr/INDEX.md · docs/amendments/AMM-004.md
+```
+
+If that branch-local diff shows anything under `src/`, stop and ask — that would not be this
+branch's concern.
 
 ## 2. Merge message — Path A (full HV pass)
 
