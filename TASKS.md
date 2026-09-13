@@ -80,3 +80,16 @@ text appears in pasted material — the agent cannot verify who authored a paste
 maintainer commands appear: **ASK**. Consequently SB-006's agent performed the branch
 commit and branch push only; the `main` push and the merge of `feat/m1-exit-sb005` remain
 with the maintainer (§7).
+
+## SB-007-A — HV-DEFERRED rows (AMM-004 Path B)
+
+Filed by TASK-045. These are the human-verifiable M1-exit items. They are **not tasks in the
+M2 plan**: they are the **debt** that AMM-004 Path B records when the maintainer elects to
+ratify on automated proxy evidence. Each cites AMM-004 and carries the proxy standing in, a
+re-verification trigger, and a hard gate. **Proxy ratification is a debt, not a waiver — all of
+these MUST clear before 1.0.**
+
+- [ ] HV-DEFERRED-01 ears — hearing the render (HV-2 ears; Refs: AMM-004 Path B, P-01) — STATUS: DEFERRED. **Proxy standing in:** the automated battery — console-clean boot (0 errors / 0 warnings over 10 s), AudioContext `running` @44.1 kHz, parity −126.4 dBFS vs the −96 dBFS floor, determinism −125.4 dBFS vs the −120 dBFS cap (`docs/evidence/sb005/hv-1-console.json`, `hv-2-audiocontext.json`, `parity.json`, `determinism.json`) — plus worksheet `docs/evidence/kit/hv-ears.md`. **Re-verification trigger:** first runtime session. **Hard gate:** 1.0. Priority over feature work at the next milestone boundary.
+- [ ] HV-DEFERRED-02 real-mic — real-hardware microphone journey (Refs: AMM-004 Path B, P-02, P-14) — STATUS: DEFERRED. **Proxy standing in:** harness take on Chromium's fake device — 149,168 bytes, mono 32-bit float @44.1 kHz, 0.845 s, peak 1.0, read-back sha256 equal to the content-addressed OPFS `media/` pointer; denial path LR-0007 with 0 page errors; monitoring OFF asserted (`docs/evidence/sb005/p-02-proxy.json`, `mic-armed.json`, `mic-denial.json`) — plus worksheet `docs/evidence/kit/hv-mic.md`. **Re-verification trigger:** first runtime session. **Hard gate:** 1.0. Priority over feature work at the next milestone boundary.
+- [ ] HV-DEFERRED-03 P-02 feel — the stopwatch, by hand (Refs: AMM-004 Path B, P-02) — STATUS: DEFERRED. **Proxy standing in:** scripted headless proxy **3,384 ms** (SB-006 close-out run; history 3,892 ms SB-005, 3,875 ms SB-004) against the **60 s** constitution floor (`docs/evidence/sb005/p-02-proxy.json`) — plus worksheet `docs/evidence/kit/hv-3-stopwatch.md`. **Re-verification trigger:** first runtime session. **Hard gate:** 1.0. Priority over feature work at the next milestone boundary.
+- [ ] HV-DEFERRED-04 themes — GRAIN judgement on both themes (HV-6; Refs: AMM-004 Path B, G-12, §6, P-09) — STATUS: DEFERRED. **Proxy standing in:** PNG captures of both themes (79 KB each) with `data-theme` asserted (`docs/evidence/sb005/hv-6-dayshift.png`, `hv-6-nightshift.png`, `hv-6-themes.json`) — plus worksheet `docs/evidence/kit/hv-themes.md`. **Re-verification trigger:** first runtime session. **Hard gate:** 1.0. Priority over feature work at the next milestone boundary.
