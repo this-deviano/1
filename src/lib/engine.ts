@@ -25,6 +25,7 @@ interface QueuedNote {
   vel: number; // 1..127
   dur: number; // seconds
   track: Track;
+  gainDb: number; // placement.gain override (§5.3) — model is truth, projections obey
 }
 
 class LuthierEngine {
@@ -277,7 +278,7 @@ class LuthierEngine {
     track: Track,
     secPerTick: number,
     transpose: number,
-    _gainDb: number
+    gainDb: number
   ) {
     const ctx = this.ctx!;
     const time = this.startCtxTime + (absTick - this.startTick) * secPerTick;
@@ -289,6 +290,7 @@ class LuthierEngine {
       vel: n.vel,
       dur,
       track,
+      gainDb,
     });
   }
 
@@ -301,7 +303,7 @@ class LuthierEngine {
   private fireVoice(n: QueuedNote) {
     const ctx = this.ctx!;
     const track = n.track;
-    const gain = dbToGain(track.gain) * (n.vel / 127);
+    const gain = dbToGain(track.gain) * (n.vel / 127) * dbToGain(n.gainDb); // track strip × velocity × placement override (P-15: no hidden moves)
     const pan = track.pan;
     const out = ctx.createGain();
     const panner = ctx.createStereoPanner();
@@ -461,7 +463,7 @@ class LuthierEngine {
         panner.pan.value = track.pan;
         out.connect(panner);
         panner.connect(this.comp!);
-        const n: QueuedNote = { time: t, pitch, vel, dur: 0.35, track };
+        const n: QueuedNote = { time: t, pitch, vel, dur: 0.35, track, gainDb: 0 }; // performance input: no placement override exists
         const gain = dbToGain(track.gain) * (vel / 127);
         if (track.instrument === "drums") this.drumVoice(out, pitch, t, gain, vel);
         else if (track.instrument === "bass") this.toneVoice(out, n, gain, "sawtooth", 0.02, 480);
@@ -506,7 +508,7 @@ class LuthierEngine {
       panner.connect(comp);
       const gain = dbToGain(track.gain) * (note.vel / 127);
       const time = absTick * secPerTick + 0.05;
-      const qn: QueuedNote = { time, pitch: Math.min(127, note.pitch + transpose), vel: note.vel, dur: Math.max(0.03, note.len * secPerTick), track };
+      const qn: QueuedNote = { time, pitch: Math.min(127, note.pitch + transpose), vel: note.vel, dur: Math.max(0.03, note.len * secPerTick), track, gainDb: 0 };
       if (track.instrument === "drums") this.renderDrum(ctx, out, qn.pitch, time, gain);
       else if (track.instrument === "bass") this.renderTone(ctx, out, qn, gain, "sawtooth", 480);
       else if (track.instrument === "pluck") this.renderTone(ctx, out, qn, gain, "triangle", 2600);
