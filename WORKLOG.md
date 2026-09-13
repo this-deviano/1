@@ -1,5 +1,10 @@
 # WORKLOG — append-only
 
+## SB-003 — 2026-09-13
+- START: remote sync (TASK-016) first; then orphan triage (§4), E-003 verification, font licenses (§7), then TASK-005/006/017 as capacity allows.
+- WORKSPACE STATE AT START: branch fix/inline-confirm (stack tip), clean tree, all 5 heads present (ff21132 + 7d1755a/fd3f8be/f3cc603/26ad378). No reset; nothing lost.
+- GATES (re-run by me on stack tip before any push): bun tsc -b --noEmit clean; bun run build green (pre-existing chunk warnings only).
+
 ## SB-002 — 2026-09-12
 - START: first-light verification + constitutional bootstrap; no new features.
 - AG-07 CHECK: original root commit ancestor: yes — root `74ee3eb` ("Initial commit") is an ancestor of HEAD `4a18447`; history linear (2 commits total), no rewrite detected. Never will be rewritten.

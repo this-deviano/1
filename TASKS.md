@@ -17,6 +17,7 @@
 - [ ] TASK-014 M1: engine audit orphan ORPH-D-1 — renderWav omits cycle material (Refs: TASK-000 audit; parity with scheduleRange) — STATUS: TODO
 - [ ] TASK-015 M1: engine audit orphan ORPH-D-2 — offline render drops DynamicsCompressor attack/release constants (Refs: TASK-000 audit) — STATUS: TODO
 - [ ] TASK-016 M1: worklet underrun counter wiring — status.underruns never increments (Refs: E-21, P-07; blocked: no runtime/AudioWorklet verification possible) — STATUS: BLOCKED (needs HV runtime)
+- [ ] TASK-016 M1: remote sync & verification — push main (E-001 doc-class) + fix stack per E-002; verify origin state (Refs: SB-003 §2, P-20 spirit) — STATUS: DOING
 - [ ] TASK-017 M1: xrun/taskset real-time discipline gates (Refs: ADR-0001; activates at Tauri shell) — STATUS: DROPPED + ADR-0001 (preview layer inherits spirit, not letter)
 - [ ] TASK-009 M1: command inventory table — id | pointer | key | palette; fix gaps (Refs: P-11) — STATUS: DONE (table in WORKLOG §SB-002)
 - [ ] TASK-010 M1: P-02 rehearsal — fresh-state reset definition + timed journey (Refs: P-02) — STATUS: DONE (reset defined; stopwatch step routed to HV-3)
