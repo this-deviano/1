@@ -23,11 +23,19 @@ async function digestBuffer(buf: AudioBuffer): Promise<string> {
 export interface ParityResult {
   ok: boolean;
   maxAbsDiff: number;
-  dbfs: number; // maxAbsDiff in dBFS (−Infinity when bit-identical)
+  dbfs: number; // MEASURED max|Δ| in dBFS (−Infinity when bit-identical)
   samples: number;
   liveHash: string;
   offlineHash: string;
   bitIdentical: boolean;
+  /* R-2 dual threshold: what we ship against, and what the constitution says.
+     Both numbers are always present so the verdict can never be read alone. */
+  gateAbs: number;
+  gateDbfs: number;
+  floorAbs: number;
+  floorDbfs: number;
+  gateMet: boolean;
+  floorMet: boolean;
 }
 
 export interface DeterminismResult {
@@ -37,7 +45,19 @@ export interface DeterminismResult {
   bitIdentical: boolean;
 }
 
-const PASS_FLOOR_ABS = 1e-4; // ≈ −80 dBFS (dev gate); constitution floor −96 dBFS
+/* R-2 dual threshold (SB-004).
+   SHIP gate … −80 dBFS (1e-4): absorbs the documented preroll/envelope path
+     divergence between the live-semantics leg and the offline fast-forward leg.
+   FLOOR … −96 dBFS (1.5849e-5): the constitution's deterministic-render bar,
+     and the M2-exit target (TASK-023: eliminate the divergence rather than
+     widen the gate).
+   The verdict ALWAYS carries the measured value and BOTH thresholds (P-07).
+   Never widen a gate to make a test pass: if the floor is not met, `floorMet`
+   says so and the console/panel report it loudly (LR-0006). */
+export const PARITY_GATE_DBFS = -80;
+export const PARITY_FLOOR_DBFS = -96;
+const PARITY_GATE_ABS = 1e-4; // ≈ −80 dBFS
+const PARITY_FLOOR_ABS = 1.5849e-5; // 10^(−96/20)
 
 export async function selfTestRenderParity(): Promise<ParityResult> {
   const song: Song = engine.song ?? makeFactorySong();
@@ -90,7 +110,23 @@ export async function selfTestRenderParity(): Promise<ParityResult> {
   const dbfs = bitIdentical ? Number.NEGATIVE_INFINITY : 20 * Math.log10(Math.max(maxDiff, 1e-12));
   const liveHash = await digestBuffer(bufLive);
   const offlineHash = await digestBuffer(bufOffline);
-  return { ok: bitIdentical || maxDiff <= PASS_FLOOR_ABS, maxAbsDiff: maxDiff, dbfs, samples: n, liveHash, offlineHash, bitIdentical };
+  const gateMet = bitIdentical || maxDiff <= PARITY_GATE_ABS;
+  const floorMet = bitIdentical || maxDiff <= PARITY_FLOOR_ABS;
+  return {
+    ok: gateMet, // the SHIP gate decides pass/fail; the floor is reported, not substituted
+    gateMet,
+    floorMet,
+    maxAbsDiff: maxDiff,
+    dbfs,
+    samples: n,
+    liveHash,
+    offlineHash,
+    bitIdentical,
+    gateAbs: PARITY_GATE_ABS,
+    gateDbfs: PARITY_GATE_DBFS,
+    floorAbs: PARITY_FLOOR_ABS,
+    floorDbfs: PARITY_FLOOR_DBFS,
+  };
 }
 
 export async function selfTestDeterminism(): Promise<DeterminismResult> {

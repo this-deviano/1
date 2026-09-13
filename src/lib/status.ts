@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from "react";
 import type { EngineStatus } from "./engine";
 import { selfTestRenderParity, selfTestDeterminism } from "./selftest";
+import type { DeterminismResult, ParityResult } from "./selftest";
 
 let status: EngineStatus = {
   running: false,
@@ -66,7 +67,21 @@ function setSelfTest(patch: Partial<SelfTestState>) {
   for (const l of stListeners) l();
 }
 
-async function runBothSelfTests(): Promise<void> {
+/** −inf (bit-identical) prints as such; the measured number is never hidden (R-2, P-07). */
+function fmtDbfs(dbfs: number): string {
+  return dbfs === Number.NEGATIVE_INFINITY ? "−inf" : dbfs.toFixed(1);
+}
+
+export interface SelfTestRunResult {
+  parity: ParityResult | null;
+  determinism: DeterminismResult | null;
+  error: string | null;
+}
+
+/* R-2: the verdict ALWAYS carries the measured value and BOTH thresholds — the
+   ship gate (−80 dBFS) and the constitution floor (−96 dBFS) — so neither the
+   console line nor the returned object can be read as "passed" without them. */
+async function runBothSelfTests(): Promise<SelfTestRunResult> {
   setSelfTest({ running: true, error: null });
   try {
     const parity = await selfTestRenderParity();
@@ -74,10 +89,13 @@ async function runBothSelfTests(): Promise<void> {
     setSelfTest({ running: false, parity, determinism });
     // eslint-disable-next-line no-console
     console.log(
-      `[selftest] renderparity: ${parity.ok ? "PASS" : "FAIL"} · max|Δ|=${parity.maxAbsDiff.toExponential(3)} (${parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : parity.dbfs.toFixed(1)} dBFS) · bit-identical=${parity.bitIdentical}\n[selftest] determinism: ${determinism.ok ? "PASS" : "FAIL"} · ${determinism.hashA.slice(0, 16)}… vs ${determinism.hashB.slice(0, 16)}…`
+      `[selftest] renderparity: ${parity.ok ? "PASS" : "FAIL"} · measured max|Δ|=${parity.maxAbsDiff.toExponential(3)} (${fmtDbfs(parity.dbfs)} dBFS) · ship gate ${parity.gateDbfs} dBFS ${parity.gateMet ? "met" : "MISSED"} · constitution floor ${parity.floorDbfs} dBFS ${parity.floorMet ? "met" : "NOT met"} · bit-identical=${parity.bitIdentical}\n[selftest] determinism: ${determinism.ok ? "PASS" : "FAIL"} · ${determinism.hashA.slice(0, 16)}… vs ${determinism.hashB.slice(0, 16)}…`
     );
+    return { parity, determinism, error: null };
   } catch (e) {
-    setSelfTest({ running: false, error: e instanceof Error ? e.message : "self-test crashed" });
+    const message = e instanceof Error ? e.message : "self-test crashed";
+    setSelfTest({ running: false, error: message });
+    return { parity: null, determinism: null, error: message };
   }
 }
 
@@ -86,7 +104,8 @@ export function installSelfTests() {
   const w = window as unknown as { app?: { selftest?: unknown } };
   w.app = w.app ?? {};
   w.app.selftest = {
-    renderparity: () => void runBothSelfTests(),
-    determinism: () => void runBothSelfTests(),
+    // Both return the full result (measured value + both thresholds) per R-2.
+    renderparity: () => runBothSelfTests(),
+    determinism: () => runBothSelfTests(),
   };
 }

@@ -607,7 +607,14 @@ function SelfTestPanel() {
       </div>
       {st.parity && (
         <div>
-          max|Δ| {st.parity.maxAbsDiff.toExponential(3)} ({st.parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.parity.dbfs.toFixed(1)} dBFS) · live {st.parity.liveHash.slice(0, 12)}… · offline {st.parity.offlineHash.slice(0, 12)}… · bit-identical {String(st.parity.bitIdentical)}
+          measured max|Δ| {st.parity.maxAbsDiff.toExponential(3)} ({st.parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.parity.dbfs.toFixed(1)} dBFS) · ship gate {st.parity.gateDbfs} dBFS {
+            st.parity.gateMet ? "met" : "MISSED"
+          } · constitution floor {st.parity.floorDbfs} dBFS {st.parity.floorMet ? "met" : "NOT met"} · bit-identical {String(st.parity.bitIdentical)}
+        </div>
+      )}
+      {st.parity && (
+        <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+          live {st.parity.liveHash.slice(0, 16)}… · offline {st.parity.offlineHash.slice(0, 16)}… · M2 target: converge to the floor (TASK-023)
         </div>
       )}
       {st.determinism && !st.determinism.ok && (
