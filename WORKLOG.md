@@ -1,5 +1,107 @@
 # WORKLOG — append-only
 
+## SB-007-C — 2026-09-13 (adjunct — M1-DEBT CLEARANCE; gate-free, FINAL adjunct)
+
+- START (announced at session open, recorded here): TASK-050 criteria repair (R-8) → TASK-051 export
+  peak guard (R-9) → TASK-052 evidence immutability (E-012) → TASK-053 p-02 variance (R-10) →
+  TASK-054 factory-headroom memo → TASK-055 merge plan + bookkeeping. **No M2 features. `main`
+  untouched. No merge.** This is the last gate-free session: the queue is emptied here.
+- WORKSPACE STATE AT START, verified read-only before anything was touched (evidence over briefing):
+  branch `feat/audio-forensics`, tip `c4fca58`, **clean tree**. `git show origin/main:MILESTONE` →
+  **`M1`**; the working-tree `MILESTONE` already reads **`M2`** because this branch descends from
+  `ratify/m1-exit` — **that staging was NOT authored by this session** (the briefing's "MILESTONE
+  stays M1" describes `origin/main`; the branch is M2-staged by design). `git rev-list
+  --left-right --count origin/main...HEAD` = **0 ahead / 31 behind**, so the tip fully contains
+  main. Branch cut: `fix/m1-debt-clearance` off `c4fca58`.
+- E-011 channel check: the briefing arrived labelled `[AGENT PROMPT]`; no unlabelled
+  maintainer-class command was present, none was executed.
+- Provenance note, stated plainly: written at close-out of a single-pass session; nothing here was
+  written after the fact to look tidier, and no earlier entry was rewritten.
+
+### §2 RULINGS LOGGED (logged, not re-litigated)
+
+- **R-8 — the criteria repair (FND-02/03/04 are instrument defects; the audio stands).**
+  (a) DC is gated **only inside silent regions** (50 ms windows, 50 % overlap, RMS below −60 dBFS);
+  whole-file DC is informational, never gated. **The numeric limit was not moved** (`1e-4`) — only
+  the domain changed, so the repair cannot be mistaken for threshold-shopping. (b) The lattice gate
+  is two-part: a **count** gate (exceedances of the interior p99.9 must not exceed the Poisson
+  99.9 % quantile for λ = 0.001·N) and a **local** gate (a single boundary must exceed 20× the
+  interior p99.9 of its own ±1 s neighbourhood **and** an absolute floor of `0.25`, corpus-derived:
+  the corpus's largest legitimate boundary delta is 0.06885, so 0.25 is 3.6× it). An interior p99.9
+  of 0 reports **UNINFORMATIVE**, never a silent pass. (c) The take is judged on peak ∈ [0.98, 1.0]
+  and duration vs the **armed wall-clock** ±150 ms; the fixed-onset trim assertion is DELETED;
+  sub-step timing is asserted on the deterministic MIDI input path. (d) Validation mandate executed:
+  see below.
+- **R-9 — export honesty (the FND-01 fix; P-04/P-07/P-14/P-15 compliant).** `renderWav(opts)` with
+  `peakPolicy ∈ {'as-is','normalize'}` and `targetDbfs` (default −1.0, also −0.3). An as-is export
+  over 0 dBFS returns the untouched bytes **and** a `measuredPeakDbfs` + a surfaced `warning`; the
+  UI shows a **non-modal inline** choice panel (as-is / −1.0 / −0.3, Esc cancels) with keyboard
+  paths and palette rows. No silent normalization, ever; the label is **sample peak**, never "true
+  peak" (no oversampling — P-07). The mix itself is deliberately NOT changed: that is TASK-054.
+- **E-012 — evidence immutability by construction.** The battery writes ALL run artifacts to an
+  untracked scratch dir (`.runs/evidence/`; gitignored). Committed evidence under
+  `docs/evidence/<sb-tag>/` is created only by a deliberate copy during a session. The churn class
+  (SB-007-B rewrote tracked SB-005 evidence) is deleted.
+- **E-013 — criteria provenance.** Every gated threshold in the harness and in `forensics.ts`
+  carries a comment citing its derivation and the ruling that authorized it. Any post-red change to
+  a threshold requires a WORKLOG entry citing that ruling, which makes threshold-shopping
+  structurally visible.
+- **R-10 — p-02 variance.** The battery runs the journey 3× and reports median/min/max; **no gate on
+  the spread**. The historical 3,384→5,152 ms jump is an environment-variance watch item, not a
+  regression (still ~15× under the 60 s floor).
+
+### R-8d — the same evidence, re-judged (the anti-threshold-shopping proof)
+
+Source: `docs/evidence/sb007b/forensics.json` (the SB-007-B record), re-read by the spec and scored
+under the repaired rules; fresh numbers from the same factory Song alongside. Full record:
+`docs/evidence/sb007c/forensics.json`.
+
+| criterion | before (SB-007-B) | after (repaired) |
+| --- | --- | --- |
+| FND-01 export peak | `1.208632` = +1.65 dBFS, 250 samp/ch over FS, criterion `clipped == 0` → **FAIL (real)** | as-is warns (`scaledByDb` 0); normalize delivers `−1.0000003 dBFS`, **0 clipped** → **PASS** (R-9) |
+| FND-02 DC | whole-file `1.2032e-4` > `1e-4` → FAIL; segment means alternate sign (4/8) → proof it is not a bias | silent-region DC max **`6.32e-5`** (limit `1e-4`); take silent DC **0** → **PASS** (R-8a) |
+| FND-03 lattice | 5 exceedances of 3,309, expected 3.31 by chance → FAIL | λ=3.309, Poisson 99.9 % allowance **10**, observed **5** → countPass; local candidates **0** → **PASS**; take **UNINFORMATIVE** (interior p99.9 = 0) (R-8b) |
+| FND-04 take | onset 0.0/446.4/0.0 ms → FAIL | peak `1.0` ∈ [0.98, 1.0]; duration `845.4 ms` vs armed window `2914.3 − 2033.9` → Δ **−35.0 ms** → **PASS**; onset assertion deleted (R-8c) |
+
+**Two honest corrections to the briefing, from measurement (E-8 discipline):**
+
+1. **The peak is NOT stable "to the last digit".** Two renders of the one Song differ by
+   **2.4e-7** in sample peak (`1.20863199…` vs `1.20863223…`). The difference is inside the
+   **ratified AMM-003 per-render cap (1e-6)**, so the fixture comparison is a cap comparison, not
+   an equality — the briefing's "stable ×4 to the last digit" overstates it. Recorded in
+   `docs/evidence/sb007c/export-guard.json`.
+2. **The Node-side arm marker is not the armed wall-clock.** The first full run measured a take
+   `775 ms` short of an arm timestamp polled from `ui().micArmed`; measuring the capture window at
+   its **source** (`micCapture.reset()` → `take()`) shows the two agree within ~12 ms
+   (`2914.3` in-page vs `2902` Node-side) and the take lands within ±150 ms. The instrument was
+   strengthened (a tiny `app.mic().armedWindowMs` seam) rather than the tolerance widened — FND-04
+   was an instrument defect, and so was the first version of its replacement.
+
+### Gates (E-009 / AG-02)
+
+- `bun tsc -b --noEmit` + `bunx tsc -p tsconfig.json --noEmit` — **PASS**.
+- `bun run build` — **PASS** (pre-existing dynamic-import chunk warnings only, unchanged).
+- `bun run test:preview` — **15 passed / 0 failed (50.9 s)** on the production bundle. The SB-007-B
+  red spec is now green **for principled reasons** (above), not by a widened threshold; the 13
+  pre-existing HV checks are unaffected; two new checks run (forensics, export-guard).
+- **E-012 negative test — PASS:** two consecutive battery runs left `git status` showing **no
+  tracked evidence change**. `docs/evidence/sb005/` was NOT rewritten this session.
+
+### Disclosures / limits, stated plainly
+
+- **HV-DEFERRED-01 remains open.** Nobody has heard this render. R-9 makes the export honest; it
+  does not make the mix good. A listening artifact now exists — `docs/evidence/sb007c/`
+  `factory-mix-hot-excerpt.wav`, the exact samples over full scale — but listening it through is
+  still the maintainer's.
+- **The mix is still hot by default.** Nothing about the factory default changed (that is TASK-054's
+  decision, P-15). The export still peaks +1.65 dBFS as-is; the guard merely refuses to be silent
+  about it.
+- **`main` untouched, no merge performed.** Origin/main still reads `M1`; the branch tip carries the
+  `M2` staging inherited from `ratify/m1-exit`. E-007 FINAL stands.
+- - END: TASK-050…055 complete. Battery 15/15. Branch `fix/m1-debt-clearance` pushed; ONE PR
+  (`main` ← `fix/m1-debt-clearance`) per the rewritten `MERGE-PLAN.md`. The gate-free queue is
+  empty: the only remaining step before M2 is the maintainer's merge.
+
 ## SB-007-B — 2026-09-13 (adjunct — AUDIO FORENSICS; gate-free, FINDINGS)
 
 - START (announced at session open, recorded here): TASK-047 forensics module → TASK-048
