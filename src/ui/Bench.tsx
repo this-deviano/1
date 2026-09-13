@@ -9,14 +9,14 @@ import { engine } from "../lib/engine";
 import { pushStatus } from "../lib/status";
 import type { Song } from "../lib/model";
 import { ticksToBarBeat, ticksToMinSec } from "../lib/model";
-import { cmdAddCrateClip, cmdFlushTake } from "../lib/actions";
+import { cmdAddCrateClip, cmdFlushTake, cmdPersistHistory, cmdRestoreSession } from "../lib/actions";
 import { cmdLaunchBench } from "../lib/launch";
 
 /* musical typing map — semitone offset from C3 */
 const TYPING: Record<string, number> = {
   z: 0, s: 1, x: 2, d: 3, c: 4, v: 5, g: 6, b: 7, h: 8, n: 9, j: 10, m: 11, ",": 12,
 };
-import { FACTORY_CRATE } from "../lib/factory";
+import { FACTORY_CRATE, saveSong } from "../lib/factory";
 import {
   cmdAddMarker,
   cmdAddTrack,
@@ -111,13 +111,34 @@ function Bench() {
     engine.setSong(song);
   }, [song]);
 
-  // autosave every 30 s when dirty (§10.2) — quietly, no toast
+  // autosave every 30 s when dirty (§10.2) — quietly, no toast; history snapshots ride along (TASK-006)
   useEffect(() => {
     const id = window.setInterval(() => {
       const st = getState();
-      if (st.dirty) cmdSave(true);
+      if (st.dirty) {
+        void cmdSave(true);
+        void cmdPersistHistory();
+      }
     }, 30000);
     return () => window.clearInterval(id);
+  }, []);
+
+  // boot: restore session (OPFS song → history → legacy migration) — TASK-005/006
+  useEffect(() => {
+    void cmdRestoreSession();
+  }, []);
+
+  // P-20: never lose the last 30 s to a tab close — flush on unload
+  useEffect(() => {
+    const onUnload = () => {
+      const st = getState();
+      if (st.dirty) {
+        // synchronous best-effort: legacy mirror (sync API) — OPFS is async-only
+        saveSong(st.song);
+      }
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
   }, []);
 
   // global keymap (Appendix B)

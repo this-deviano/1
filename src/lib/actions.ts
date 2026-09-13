@@ -17,6 +17,7 @@ import type { ClipPlacement } from "./store";
 import { engine } from "./engine";
 import { saveSong, loadSong, clearSong, crateClip, FACTORY_CRATE } from "./factory";
 import { cmdToggleCycle, cmdToggleMetronome, normalizeLegacySong } from "./store";
+import { writeSong, readSong, readHistory, writeHistorySnapshot, migrateFromLocalStorage, usageEstimate, opfsAvailable } from "./opfs";
 import { toast } from "../ui/primitives";
 
 /* ---------- transport ---------- */
@@ -486,21 +487,48 @@ export function cmdSetPatternLength(clipId: string, steps: number) {
   }
 }
 
-/* ---------- song ---------- */
+/* ---------- song (TASK-005: OPFS-first, localStorage mirror/fallback) ---------- */
 
-export function cmdSave(quiet = false) {
+async function persistSong(song: Song): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await writeSong(song);
+  if (res.ok) {
+    // best-effort localStorage mirror stays as a crash net (legacy readers keep working)
+    saveSong(song);
+    return { ok: true };
+  }
+  if (res.kind === "unavailable") {
+    // OPFS missing (older browser): legacy localStorage path is the store
+    const legacy = saveSong(song);
+    return legacy.ok ? { ok: true } : { ok: false, error: legacy.error ?? "storage write failed" };
+  }
+  return { ok: false, error: res.error };
+}
+
+export async function cmdSave(quiet = false) {
   const st = getState();
-  const res = saveSong(st.song);
+  const res = await persistSong(st.song);
   if (res.ok) {
     setState({ dirty: false });
-    if (!quiet) toast("Song saved locally.", "ok");
+    if (!quiet) toast("Song saved.", "ok");
   } else {
-    toast(`Save failed: ${res.error}`, "signal");
+    const usage = await usageEstimate();
+    const readout = usage.ok ? ` · ${(usage.value.usage / 1024).toFixed(0)} KB used of ${(usage.value.quota / 1048576).toFixed(0)} MB` : "";
+    toast(`LR-0001: save failed — ${res.error}${readout}`, "signal");
   }
 }
 
-export function cmdLoad() {
-  const loaded = loadSong();
+/** Autosave companion (TASK-006): gzip history snapshots, capped at 100. */
+export async function cmdPersistHistory() {
+  const st = getState();
+  const res = await writeHistorySnapshot(st.song, st.past);
+  if (!res.ok && res.kind !== "unavailable") {
+    console.warn(`[luthier] history snapshot failed: ${res.error}`); // P-14: visible in console; song.json remains the durable copy
+  }
+}
+
+export async function cmdLoad() {
+  const fromOpfs = await readSong();
+  const loaded = fromOpfs.ok && fromOpfs.value ? fromOpfs.value : fromOpfs.ok ? loadSong() : null;
   if (loaded) {
     const song = normalizeLegacySong(loaded);
     setState({ song, selectedPlacement: null, selectedTrack: song.tracks[0]?.id ?? null, dirty: false, past: [], future: [] });
@@ -508,12 +536,52 @@ export function cmdLoad() {
     engine.cycle = song.cycle; // loaded Song carries the cycle field (TASK-013 ruling)
     toast("Song loaded.", "ok");
   } else {
-    toast("No saved Song found.", "signal");
+    toast(fromOpfs.ok ? "No saved Song found." : `Load failed: ${fromOpfs.error}`, "signal");
+  }
+}
+
+/** Boot-time session restore (TASK-006): OPFS song → history stack → legacy. */
+export async function cmdRestoreSession(): Promise<void> {
+  const migration = await migrateFromLocalStorage();
+  if (migration.ok && migration.value.song) {
+    const song = normalizeLegacySong(migration.value.song);
+    setState({ song, dirty: false });
+    engine.setSong(song);
+    engine.cycle = song.cycle;
+    syncEngineFromModel();
+    return;
+  }
+  const fromOpfs = await readSong();
+  if (fromOpfs.ok && fromOpfs.value) {
+    const song = normalizeLegacySong(fromOpfs.value);
+    setState({ song, dirty: false });
+    engine.setSong(song);
+    engine.cycle = song.cycle;
+    syncEngineFromModel();
+    return;
+  }
+  const hist = await readHistory();
+  if (hist.ok && hist.value) {
+    const song = normalizeLegacySong(hist.value.song);
+    const past = hist.value.past.map(normalizeLegacySong);
+    setState({ song, past, dirty: false }); // undo now survives reload (P-06)
+    engine.setSong(song);
+    engine.cycle = song.cycle;
+    syncEngineFromModel();
   }
 }
 
 export function cmdNewSong() {
   clearSong();
+  if (opfsAvailable()) {
+    void (async () => {
+      const dir = await navigator.storage.getDirectory();
+      for (const name of ["song.json", "song.json.tmp", "manifest.json"] as const) {
+        await dir.removeEntry(name).catch(() => undefined);
+      }
+      await dir.removeEntry("history", { recursive: true }).catch(() => undefined);
+    })();
+  }
   window.location.reload();
 }
 
@@ -600,6 +668,8 @@ import { getStatus } from "./status";
 function getStatusTick(): number {
   return getStatus().playheadTick;
 }
+
+import { syncEngineFromModel } from "./store";
 
 export function selectedPlacementDetail(): { placement: ClipPlacement; track: Track; song: Song } | null {
   const st = getState();
