@@ -1,0 +1,37 @@
+{
+  "proxy": "PROXY — headless Chromium, production bundle served by `vite preview`.",
+  "ruling": "R-9 (SB-007-C) — FND-01 fixture. The as-is path is the pre-guard encoding.",
+  "samplePeak": 1.208632230758667,
+  "measuredPeakDbfs": 1.645883429127397,
+  "sha256": "663a60d0c308ed8fa23f61635a363aca550cb683c9d038b569a3e0b098258b88",
+  "bytes": 3388276,
+  "overFullScale": true,
+  "samplesAtOrOverFullScale": 725702,
+  "excerpt": {
+    "file": "factory-mix-hot-excerpt.wav",
+    "startFrame": 53367,
+    "frames": 11026,
+    "peak": 1.208632230758667,
+    "note": "0.25 s around the loudest sample; float32 stereo; contains the exact clipping samples."
+  },
+  "before": {
+    "samplePeak": 1.208631992340088,
+    "measuredPeakDbfs": 1.6458817157214347,
+    "samplesOverFullScale": 250
+  },
+  "note": "The peak reproduces WITHIN the AMM-003 cap (1e-6), not to the last digit — SB-007-C measured a 2.4e-7 spread between renders, contradicting the briefing's 'last digit' claim. Evidence over briefing.",
+  "fixtureComparison": {
+    "source": "docs/evidence/sb007c/factory-mix-as-is.json",
+    "cap": 0.000001,
+    "capProvenance": "AMM-003 Branch A — ratified per-render divergence cap, 10^(−120/20)",
+    "peakDelta": 2.384185791015625e-7,
+    "peakWithinCap": true,
+    "committedPeak": 1.208631992340088,
+    "freshPeak": 1.208632230758667,
+    "exactPeakMatch": false,
+    "shaMatches": false,
+    "committedSha": "c8362f5a8240fb5985909283b611077131e24150ab76b7ce92f1a7de51e8e280",
+    "freshSha": "663a60d0c308ed8fa23f61635a363aca550cb683c9d038b569a3e0b098258b88",
+    "verdict": "PEAK-WITHIN-CAP / SHA-DIFFERS (AMM-003 platform render noise, ratified — the export is not bit-stable across renders)"
+  }
+}

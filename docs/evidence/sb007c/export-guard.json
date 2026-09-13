@@ -1,0 +1,49 @@
+{
+  "proxy": "PROXY — headless Chromium, production bundle served by `vite preview`.",
+  "thresholds": {
+    "targetDbfs": -1,
+    "normalizeToleranceDb": 0.1
+  },
+  "warningFires": {
+    "overFullScale": true,
+    "scaledByDb": 0,
+    "warning": "Export sample peak is 1.208632 (+1.65 dBFS), over 0 dBFS. It will clip on any integer DAC; scale it or export as-is knowingly."
+  },
+  "normalizeAccuracy": {
+    "targetDbfs": -1,
+    "requestedFromPeak": 1.2086318731307983,
+    "scaledByDb": -2.6458808590183267,
+    "deliveredPeak": 0.8912509083747864,
+    "deliveredDbfs": -1.0000002900227403,
+    "deltaDb": -2.9002274026801445e-7
+  },
+  "asIsIdentity": {
+    "identical": true,
+    "bytes": 3388276,
+    "shaGuard": "d1fd007e2ce15d0ea54f2964fb68bc80b9debe55780a11ca03d96b728baa5651",
+    "shaDirect": "d1fd007e2ce15d0ea54f2964fb68bc80b9debe55780a11ca03d96b728baa5651"
+  },
+  "fixtureComparison": {
+    "source": "docs/evidence/sb007c/factory-mix-as-is.json",
+    "cap": 0.000001,
+    "capProvenance": "AMM-003 Branch A — ratified per-render divergence cap, 10^(−120/20)",
+    "peakDelta": 2.384185791015625e-7,
+    "peakWithinCap": true,
+    "committedPeak": 1.208631992340088,
+    "freshPeak": 1.208632230758667,
+    "exactPeakMatch": false,
+    "shaMatches": false,
+    "committedSha": "c8362f5a8240fb5985909283b611077131e24150ab76b7ce92f1a7de51e8e280",
+    "freshSha": "663a60d0c308ed8fa23f61635a363aca550cb683c9d038b569a3e0b098258b88",
+    "verdict": "PEAK-WITHIN-CAP / SHA-DIFFERS (AMM-003 platform render noise, ratified — the export is not bit-stable across renders)"
+  },
+  "excerpt": {
+    "file": "factory-mix-hot-excerpt.wav",
+    "startFrame": 53367,
+    "frames": 11026,
+    "peak": 1.208632230758667,
+    "bytes": 88252
+  },
+  "verdict": "PASS",
+  "disclosure": "The export is NOT bit-stable across renders (Chromium WebAudio, ratified as AMM-003); the fixture comparison therefore reports peak-identity and SHA-divergence separately rather than claiming a byte match it cannot have. Byte-identity of the AS-IS PATH is proven structurally on a single buffer (asIsIdentity), which is the property P-15 actually requires: the guard must not alter the output."
+}
