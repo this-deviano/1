@@ -110,7 +110,7 @@ HV-DEFERRED-01: it narrows that debt from *"is it broken?"* (measurable — answ
 
 **Reference-song export** (2 ch · 44.1 kHz · 32-bit float · 423,529 frames = 9.6038 s): true peak **1.208632230758667 = +1.65 dBFS**; **250 samples per channel strictly over full scale**; DC **1.2032e-4 = −78.39 dBFS**; lattice **5 outlier boundaries of 3,309** (first at 29184, 31872, 36352, 50944, 58752), max boundary delta 0.06885 vs interior p99.9 0.05941; onset **55.99 ms** vs the engine's own PREROLL 50 ms → offset **+5.99 ms (PASS)**; trailing silence 1,324 ms. Reproduced across four battery/forensics runs to the last digit — this finding is stable, not a fluke.
 
-**Fake-tone take** (mono · 44.1 kHz): peak **exactly 1.0** with **0 samples strictly over** full scale — the take is a short full-scale 440 Hz square burst inside digital silence; onset **0.0 / 446.4 / 0.0 ms across three runs**; DC 2.34e-2 … 1.68e-2 (window mean of the burst train); lattice vacuous (interior p99.9 = 0).
+**Fake-tone take** (mono · 44.1 kHz): peak **exactly 1.0** with **0 samples strictly over** full scale — the take is a short full-scale 440 Hz square burst inside digital silence; onset **0.0 / 446.4 / 0.0 ms across three runs**; DC **1.51e-2 … 2.34e-2 across runs** (window mean of the burst train — it tracks where the burst falls, which is the point of FND-02); lattice vacuous (interior p99.9 = 0).
 
 ### FINDINGS — 4 root causes behind 8 failing criteria (none threshold-shopped)
 
