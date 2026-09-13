@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useStore, syncEngineFromModel, pushMetronomePrefError } from "../lib/store";
 import { useStatus, useSelfTest, installSelfTests } from "../lib/status";
+import { installDevApi } from "../lib/devapi";
 import { engine } from "../lib/engine";
 import { pushStatus } from "../lib/status";
 import type { Song } from "../lib/model";
@@ -105,9 +106,10 @@ function Bench() {
     pushMetronomePrefError();
   }, []);
 
-  // dev self-test console hook (app.selftest.*) — parity guard + determinism
+  // dev/verification console hooks — app.selftest.* (status.ts) + window.app (devapi.ts)
   useEffect(() => {
     installSelfTests();
+    installDevApi();
   }, []);
 
   useEffect(() => {
