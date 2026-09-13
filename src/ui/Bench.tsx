@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useStore, syncEngineFromModel, pushMetronomePrefError } from "../lib/store";
-import { useStatus } from "../lib/status";
+import { useStatus, useSelfTest, installSelfTests } from "../lib/status";
 import { engine } from "../lib/engine";
 import { pushStatus } from "../lib/status";
 import type { Song } from "../lib/model";
@@ -100,6 +100,11 @@ function Bench() {
   // P-14: a failed metronome-pref write surfaces once, inline, as LR-0005
   useEffect(() => {
     pushMetronomePrefError();
+  }, []);
+
+  // dev self-test console hook (app.selftest.*) — parity guard + determinism
+  useEffect(() => {
+    installSelfTests();
   }, []);
 
   useEffect(() => {
@@ -218,6 +223,7 @@ function Bench() {
         <Inspector />
       </div>
       <StatusBar />
+      <SelfTestPanel />
       {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       <CheatSheet />
       <Coach />
@@ -563,6 +569,54 @@ function StatusBar() {
       <span style={{ marginLeft: "auto" }} className="value">
         {dirty ? "unsaved — ctrl+s" : "in session"} · {song.name}
       </span>
+    </div>
+  );
+}
+
+/* P-14 parity-guard failure surface: red inline panel, never a modal (P-04).
+   Renders only when a self-test has FAILED (or crashed) — success stays quiet
+   in the UI and logs to console. */
+function SelfTestPanel() {
+  const st = useSelfTest();
+  if (st.running || (!st.parity && !st.determinism && !st.error)) return null;
+  const parityFail = st.parity !== null && !st.parity.ok;
+  const detFail = st.determinism !== null && !st.determinism.ok;
+  if (!parityFail && !detFail && !st.error) return null;
+  return (
+    <div
+      role="alert"
+      className="step-shadow"
+      style={{
+        position: "fixed",
+        left: "50%",
+        transform: "translateX(-50%)",
+        bottom: 40,
+        zIndex: 120,
+        padding: "10px 14px",
+        background: "var(--grain-paper)",
+        border: "1.5px solid var(--grain-signal)",
+        color: "var(--grain-signal)",
+        fontSize: 12,
+        maxWidth: 560,
+      }}
+    >
+      <div style={{ fontWeight: 600 }}>
+        LR-0006 · render-parity guard FAILED — exports do not match the live render
+      </div>
+      {st.parity && (
+        <div>
+          max|Δ| {st.parity.maxAbsDiff.toExponential(3)} ({st.parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.parity.dbfs.toFixed(1)} dBFS) · live {st.parity.liveHash.slice(0, 12)}… · offline {st.parity.offlineHash.slice(0, 12)}… · bit-identical {String(st.parity.bitIdentical)}
+        </div>
+      )}
+      {st.determinism && !st.determinism.ok && (
+        <div>
+          determinism: {st.determinism.hashA.slice(0, 12)}… vs {st.determinism.hashB.slice(0, 12)}… (same-scope, ADR-0002)
+        </div>
+      )}
+      {st.error && <div>self-test error: {st.error}</div>}
+      <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+        console: app.selftest.renderparity() · app.selftest.determinism()
+      </div>
     </div>
   );
 }

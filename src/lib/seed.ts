@@ -28,10 +28,12 @@ export function seedStream(songSeed: number, tag: string): () => number {
   return mulberry32(splitmix32((songSeed ^ h) >>> 0));
 }
 
-/** Canonical stream tags — compile-time constant, part of the render contract. */
+/** Canonical stream tags — compile-time constant, part of the render contract.
+    Tags distinguish SOURCES (never paths): live and offline renders of the
+    same Song must draw identical noise sequences for the parity guard to
+    hold (E-28/E-003; SB-003 §4). */
 export const STREAM_TAGS = {
-  LIVE_NOISE: "luthier/noise/live",
-  OFFLINE_NOISE: "luthier/noise/offline",
+  NOISE: "luthier/noise",
 } as const;
 
 /** The set of stream tags used by the app (exhaustive switch aid). */
