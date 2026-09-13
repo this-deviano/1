@@ -1,4 +1,5 @@
 /* TASK-047 (SB-007-B) — automated audio forensics.
+   TASK-050 (SB-007-C) — criteria repair per ruling R-8 (FND-02/03/04).
 
    HV-DEFERRED-01 ("ears") is open debt: nobody has listened to the render. A
    machine cannot close that debt — but it CAN split the human question in two,
@@ -14,16 +15,31 @@
    Music has transients; a naive detector flags legitimate attacks as defects.
    Engine bugs manifest at BLOCK BOUNDARIES (the AudioWorklet render quantum,
    128 samples) and at EDIT/TRIM splices, so the discontinuity scan looks ONLY
-   there and reports those deltas against the file's own interior 99.9th
-   percentile — the file is judged against itself, not against a furniture value.
+   there and reports those deltas against the file's own local statistics — the
+   file is judged against itself, not against a furniture value.
 
-   Thresholds are fixed constants, not parameters: a forensic instrument whose
-   pass criteria can be dialled per call is an instrument that can be
-   threshold-shopped (P-14). */
+   SB-007-C repair, in one paragraph: the first run of this instrument (SB-007-B)
+   went red on three criteria and the maintainer ruled all three were the
+   INSTRUMENT being wrong, not the audio (R-8). Whole-file DC is meaningless on
+   non-stationary music (FND-02), so DC is now gated only inside windows that are
+   genuinely silent — where a constant bias is the only signal that can exist. A
+   count of interior-p99.9 exceedances over-rejects by chance (FND-03), so the
+   count is now judged against the Poisson distribution it actually follows, and
+   a single boundary must additionally be impossible under its own neighbourhood.
+   The fake capture device cannot exercise onset/trim (FND-04), so those
+   assertions moved off it. The three criteria were RE-DERIVED, not loosened, and
+   the repair is validated on the SAME audio evidence (R-8d) — the numbers that
+   failed for instrument reasons must pass for principled reasons, on record.
+
+   E-013 (criteria provenance): EVERY gated threshold below carries a comment
+   citing its derivation (statistical or physical) and the ruling that authorized
+   it. Any change to a threshold after a red result requires a WORKLOG entry
+   citing that ruling, which makes threshold-shopping structurally visible. */
 
 /** AudioWorklet render quantum — where engine-side block seams land. */
 export const LATTICE_BLOCK = 128;
-/** Silence floor for onset/silence measurement (SB-007-B §1). */
+/** Silence floor for onset/silence measurement (SB-007-B §1) and for the DC gate
+    window RMS (R-8a). −60 dBFS. */
 export const SILENCE_DBFS = -60;
 /** Full-scale magnitude; |x| >= this counts as a clipped sample. */
 export const FULL_SCALE = 1.0;
@@ -33,6 +49,40 @@ export const FULL_SCALE = 1.0;
 export const DBFS_FLOOR = 1e-9;
 
 const SILENCE_AMP = Math.pow(10, SILENCE_DBFS / 20);
+
+/* ---------- gate provenance (E-013) ----------
+   Thresholds that a FAIL/FIX decision depends on. Each names its derivation.
+   Ratified by R-8 (SB-007-C); see WORKLOG for the before/after validation. */
+
+/** Percentile that defines an "outlier" boundary delta (SB-007-B §2). */
+export const LATTICE_P999 = 0.999;
+/** Count gate: the exceedance rate expected by chance under the null hypothesis
+    that boundary samples behave like interior samples (R-8b-i). The interior
+    p99.9 leaves 0.1 % of samples above it, so λ = LATTICE_NULL_RATE × N. */
+export const LATTICE_NULL_RATE = 0.001;
+/** Count gate: we reject the null only above the Poisson 99.9 % quantile for that
+    λ (R-8b-i). At 99.9 % the false-positive rate is bounded at 0.1 % per file —
+    the briefed single-percentile test had an ~24 % false-positive rate at the
+    observed boundary count (FND-03). */
+export const LATTICE_POISSON_CONFIDENCE = 0.999;
+/** Local gate: a boundary is locally guilty only above this multiple of the
+    interior p99.9 measured inside its own ±1 s neighbourhood (R-8b-ii). */
+export const LATTICE_LOCAL_FACTOR = 20;
+/** Local gate: half-width of that neighbourhood, in seconds (R-8b-ii). */
+export const LATTICE_LOCAL_WINDOW_S = 1;
+/** Local gate absolute floor (R-8b-ii). Derivation, corpus-measured at SB-007-C:
+    the corpus's interior p99.9 is 0.05941 (reference export) and 0 (fake-tone
+    take); its largest legitimate boundary delta is 0.06885. A sample-to-sample
+    step of 0.25 is −12 dBFS — 3.6× the corpus's largest legitimate transition,
+    and steeper than any musical attack's adjacent-sample slope — so a boundary
+    below it cannot be an engine seam, and one above it is then judged against
+    its own neighbourhood. The floor exists so the local test cannot degenerate
+    when the local p99.9 is 0 in sparse or silent material (FND-03). */
+export const LATTICE_ABSOLUTE_FLOOR = 0.25;
+/** DC gate geometry (R-8a): 50 ms windows at 50 % overlap. Long enough for a
+    stable mean, short enough that a musical note cannot hide inside one. */
+export const DC_SILENCE_WINDOW_MS = 50;
+export const DC_SILENCE_HOP_MS = 25;
 
 /* ---------- small shared maths (exported for direct testing) ---------- */
 
@@ -53,7 +103,37 @@ export function percentileNearestRank(sortedAsc: Float64Array, p: number): numbe
   return sortedAsc[idx];
 }
 
-/* ---------- WAV truth (P-07: report what the file says, not what we assume) ---------- */
+/* ---------- Poisson tail (R-8b-i), exact for the small λ this gate sees ------ */
+
+/** P(X ≤ k) for X ~ Poisson(λ), summed term-by-term so no factorial overflows. */
+export function poissonCdf(k: number, lambda: number): number {
+  if (k < 0) return 0;
+  if (!(lambda > 0)) return 1;
+  let term = Math.exp(-lambda);
+  let sum = term;
+  for (let i = 1; i <= k; i++) {
+    term *= lambda / i;
+    sum += term;
+    if (sum >= 1) return 1;
+  }
+  return Math.min(1, sum);
+}
+
+/** Smallest k with P(X ≤ k) ≥ p — the p-quantile, by inverting the CDF. */
+export function poissonQuantile(lambda: number, p: number): number {
+  if (!(lambda > 0)) return 0;
+  let term = Math.exp(-lambda);
+  let sum = term;
+  let k = 0;
+  while (sum < p && k < 100_000) {
+    k += 1;
+    term *= lambda / k;
+    sum += term;
+  }
+  return k;
+}
+
+/* ---------- WAV truth (P-07: report what the file says, not what we assume) ---- */
 
 export interface WavHeaderTruth {
   container: string;
@@ -194,7 +274,94 @@ export function parseWav(bytes: ArrayBuffer): ParsedWav {
   return { header, sampleRate: fmt.sampleRate, frames, channels };
 }
 
-/* ---------- per-channel forensics ---------- */
+/* ---------- silent-region DC (R-8a) ----------
+   Whole-file DC on music is informational only: the mean of a non-stationary
+   signal is the partial-cycle integral of its low-frequency content, not a bias
+   (FND-02: the export's segment means alternate sign and 4/8 share the overall
+   sign). A DC *bias* is the only signal that can exist inside genuine silence,
+   so that is the only place this instrument gates it. */
+
+export interface SilentDcScan {
+  windowMs: number;
+  hopMs: number;
+  windowCount: number;
+  silentWindowCount: number;
+  /** false when the file has no window below −60 dBFS: the DC gate is vacuous. */
+  informative: boolean;
+  /** max |window mean| over silent windows — the ONLY DC figure gated (R-8a). */
+  maxSilentAbsDc: number;
+  maxSilentDcDbfs: number | null;
+  /** Loudest silent-window RMS — how close the quietest windows sit to the floor. */
+  maxSilentRmsDbfs: number | null;
+  /** First few silent-window means, so the figure is auditable (P-07). */
+  sampleSilentMeans: number[];
+}
+
+export function silentDc(x: Float64Array, sampleRate: number): SilentDcScan {
+  const win = Math.max(1, Math.round((DC_SILENCE_WINDOW_MS / 1000) * sampleRate));
+  const hop = Math.max(1, Math.round((DC_SILENCE_HOP_MS / 1000) * sampleRate));
+  const n = x.length;
+  let windowCount = 0;
+  let silentWindowCount = 0;
+  let maxSilentAbsDc = 0;
+  let maxSilentRmsDbfs: number | null = null;
+  const sampleSilentMeans: number[] = [];
+  for (let s = 0; s + win <= n; s += hop) {
+    windowCount += 1;
+    let sum = 0;
+    let sq = 0;
+    for (let i = s; i < s + win; i++) {
+      const v = x[i];
+      sum += v;
+      sq += v * v;
+    }
+    const mean = sum / win;
+    const rms = Math.sqrt(sq / win);
+    const rmsDbfs = 20 * Math.log10(Math.max(rms, DBFS_FLOOR));
+    if (rmsDbfs < SILENCE_DBFS) {
+      silentWindowCount += 1;
+      const a = Math.abs(mean);
+      if (a > maxSilentAbsDc) maxSilentAbsDc = a;
+      if (maxSilentRmsDbfs === null || rmsDbfs > maxSilentRmsDbfs) maxSilentRmsDbfs = rmsDbfs;
+      if (sampleSilentMeans.length < 8) sampleSilentMeans.push(mean);
+    }
+  }
+  return {
+    windowMs: DC_SILENCE_WINDOW_MS,
+    hopMs: DC_SILENCE_HOP_MS,
+    windowCount,
+    silentWindowCount,
+    informative: silentWindowCount > 0,
+    maxSilentAbsDc,
+    maxSilentDcDbfs: dbfs(maxSilentAbsDc),
+    maxSilentRmsDbfs,
+    sampleSilentMeans,
+  };
+}
+
+/* ---------- lattice scan + gate (R-8b) ---------- */
+
+export interface LatticeGate {
+  /** false when the interior p99.9 is 0 — sparse/silent material; the count
+      gate is then vacuous and must report UNINFORMATIVE, not a silent pass
+      (FND-03). */
+  informative: boolean;
+  interiorP999: number;
+  boundaryCount: number;
+  /** Boundary deltas above the interior p99.9 (the briefed "outlier" count). */
+  exceedanceCount: number;
+  /** λ = LATTICE_NULL_RATE × boundaryCount — the chance rate under the null. */
+  poissonLambda: number;
+  /** Poisson 99.9 % quantile for that λ — the count gate's allowance (R-8b-i). */
+  poissonAllowed: number;
+  countPass: boolean;
+  /** Boundary deltas above LATTICE_ABSOLUTE_FLOOR — the only ones locally tested. */
+  localCandidateCount: number;
+  localGuilty: { index: number; delta: number; localP999: number; ratio: number }[];
+  localPass: boolean;
+  pass: boolean;
+  verdict: "PASS" | "FAIL" | "UNINFORMATIVE";
+}
 
 export interface LatticeScan {
   blockSize: number;
@@ -207,14 +374,157 @@ export interface LatticeScan {
   interiorP999Dbfs: number | null;
   /** Sample indices whose delta exceeds the interior p99.9 — the suspects. */
   outlierBoundaries: number[];
+  /** Legacy single-percentile verdict, kept informational (P-07). The
+      authoritative verdict is `gate.verdict` (R-8b). */
   verdict: "WITHIN-INTERIOR-P999" | "OUTLIER";
+  gate: LatticeGate;
 }
 
-/** Segments used for the DC diagnostic. Fixed, not a parameter. */
+/** p99.9 of interior deltas inside a ±LATTICE_LOCAL_WINDOW_S neighbourhood of
+    `center`. Interior deltas arrive with ascending absolute indices, so the
+    window is found by binary search and only candidates above the absolute
+    floor ever pay for this (normally zero of them). */
+function localWindowP999(
+  interiorIdx: Int32Array,
+  interiorDelta: Float64Array,
+  interiorCount: number,
+  center: number,
+  sampleRate: number
+): number {
+  const half = Math.max(1, Math.round(LATTICE_LOCAL_WINDOW_S * sampleRate));
+  const lo = center - half;
+  const hi = center + half;
+  let a = 0;
+  let b = interiorCount;
+  while (a < b) {
+    const m = (a + b) >> 1;
+    if (interiorIdx[m] < lo) a = m + 1;
+    else b = m;
+  }
+  const start = a;
+  let c = start;
+  let d = interiorCount;
+  while (c < d) {
+    const m = (c + d) >> 1;
+    if (interiorIdx[m] <= hi) c = m + 1;
+    else d = m;
+  }
+  const end = c;
+  const m = end - start;
+  if (m <= 0) return 0;
+  const w = new Float64Array(m);
+  for (let i = 0; i < m; i++) w[i] = interiorDelta[start + i];
+  w.sort();
+  return percentileNearestRank(w, LATTICE_P999);
+}
+
+export function scanLattice(
+  x: Float64Array,
+  opts?: { blockSize?: number; editPoints?: number[]; sampleRate?: number }
+): LatticeScan {
+  const n = x.length;
+  const blockSize = opts?.blockSize ?? LATTICE_BLOCK;
+  const sampleRate = opts?.sampleRate ?? 44100;
+  const editPoints = (opts?.editPoints ?? []).filter((e) => e >= 1 && e < n);
+
+  const isBoundary = new Uint8Array(n);
+  for (let i = blockSize; i < n; i += blockSize) isBoundary[i] = 1;
+  for (const e of editPoints) isBoundary[e] = 1;
+
+  const boundaryIdx: number[] = [];
+  const boundaryDelta: number[] = [];
+  const interiorIdx = new Int32Array(n > 0 ? n - 1 : 0);
+  const interiorDelta = new Float64Array(n > 0 ? n - 1 : 0);
+  let interiorCount = 0;
+
+  for (let i = 1; i < n; i++) {
+    const d = Math.abs(x[i] - x[i - 1]);
+    if (isBoundary[i]) {
+      boundaryIdx.push(i);
+      boundaryDelta.push(d);
+    } else {
+      interiorIdx[interiorCount] = i;
+      interiorDelta[interiorCount] = d;
+      interiorCount += 1;
+    }
+  }
+
+  const interior = interiorDelta.subarray(0, interiorCount).slice();
+  interior.sort(); // Float64Array sort is numeric ascending
+  const interiorP999 = percentileNearestRank(interior, LATTICE_P999);
+
+  let maxBoundaryDelta = 0;
+  const outlierBoundaries: number[] = [];
+  for (let i = 0; i < boundaryDelta.length; i++) {
+    if (boundaryDelta[i] > maxBoundaryDelta) maxBoundaryDelta = boundaryDelta[i];
+    if (boundaryDelta[i] > interiorP999) outlierBoundaries.push(boundaryIdx[i]);
+  }
+
+  /* R-8b-i — count gate. Under the null hypothesis (boundary samples are an
+     unbiased subset of the file) the expected number of exceedances of the
+     interior p99.9 is LATTICE_NULL_RATE × N_boundaries; reject the null only
+     above the Poisson 99.9 % quantile for that λ. */
+  const poissonLambda = LATTICE_NULL_RATE * boundaryDelta.length;
+  const poissonAllowed = poissonQuantile(poissonLambda, LATTICE_POISSON_CONFIDENCE);
+  const countPass = outlierBoundaries.length <= poissonAllowed;
+
+  /* R-8b-ii — local gate. Floor first, so ordinary material pays nothing; a
+     candidate must then exceed LATTICE_LOCAL_FACTOR × its own neighbourhood's
+     p99.9. A boundary is guilty only if it is statistically impossible under
+     the file's own local statistics, never merely louder than the global tail. */
+  const informative = interiorP999 > 0;
+  const localGuilty: LatticeGate["localGuilty"] = [];
+  let localCandidateCount = 0;
+  for (let i = 0; i < boundaryDelta.length; i++) {
+    const d = boundaryDelta[i];
+    if (d <= LATTICE_ABSOLUTE_FLOOR) continue;
+    localCandidateCount += 1;
+    const center = boundaryIdx[i];
+    const localP999 = localWindowP999(interiorIdx, interiorDelta, interiorCount, center, sampleRate);
+    if (d > LATTICE_LOCAL_FACTOR * localP999) {
+      localGuilty.push({ index: center, delta: d, localP999, ratio: localP999 > 0 ? d / localP999 : Number.POSITIVE_INFINITY });
+    }
+  }
+  const localPass = localGuilty.length === 0;
+  const pass = informative && countPass && localPass;
+  const gate: LatticeGate = {
+    informative,
+    interiorP999,
+    boundaryCount: boundaryDelta.length,
+    exceedanceCount: outlierBoundaries.length,
+    poissonLambda,
+    poissonAllowed,
+    countPass,
+    localCandidateCount,
+    localGuilty,
+    localPass,
+    pass,
+    verdict: !informative ? "UNINFORMATIVE" : pass ? "PASS" : "FAIL",
+  };
+
+  return {
+    blockSize,
+    editPoints,
+    boundaryCount: boundaryDelta.length,
+    maxBoundaryDelta,
+    maxBoundaryDeltaDbfs: dbfs(maxBoundaryDelta),
+    interiorCount,
+    interiorP999,
+    interiorP999Dbfs: dbfs(interiorP999),
+    outlierBoundaries,
+    verdict: outlierBoundaries.length === 0 ? "WITHIN-INTERIOR-P999" : "OUTLIER",
+    gate,
+  };
+}
+
+/* ---------- per-channel forensics ---------- */
+
+/** Segments used for the informational DC diagnostic. Fixed, not a parameter. */
 export const DC_SEGMENTS = 8;
 
 export interface ChannelForensics {
   index: number;
+  /** Whole-file mean — INFORMATIONAL ONLY on non-stationary material (FND-02). */
   dcOffset: number;
   dcDbfs: number | null;
   /** Mean per equal-count segment. A genuine DC *bias* is uniform: it shows up
@@ -227,6 +537,8 @@ export interface ChannelForensics {
   /** max|segment mean| / |overall mean| — ≈1 for a uniform bias, ≫1 for a
       residual concentrated in one part of the render (null if overall is 0). */
   dcConcentration: number | null;
+  /** The GATED DC figure: silent-region only (R-8a). */
+  dcSilent: SilentDcScan;
   truePeak: number;
   truePeakDbfs: number | null;
   /** Samples at or over full scale (|x| >= 1.0) — the briefed definition. */
@@ -240,62 +552,10 @@ export interface ChannelForensics {
   lattice: LatticeScan;
 }
 
-export function scanLattice(
-  x: Float64Array,
-  opts?: { blockSize?: number; editPoints?: number[] }
-): LatticeScan {
-  const n = x.length;
-  const blockSize = opts?.blockSize ?? LATTICE_BLOCK;
-  const editPoints = (opts?.editPoints ?? []).filter((e) => e >= 1 && e < n);
-
-  const isBoundary = new Uint8Array(n);
-  for (let i = blockSize; i < n; i += blockSize) isBoundary[i] = 1;
-  for (const e of editPoints) isBoundary[e] = 1;
-
-  const boundaryIdx: number[] = [];
-  const boundaryDelta: number[] = [];
-  const interiorScratch = new Float64Array(n > 0 ? n - 1 : 0);
-  let interiorCount = 0;
-
-  for (let i = 1; i < n; i++) {
-    const d = Math.abs(x[i] - x[i - 1]);
-    if (isBoundary[i]) {
-      boundaryIdx.push(i);
-      boundaryDelta.push(d);
-    } else {
-      interiorScratch[interiorCount++] = d;
-    }
-  }
-
-  const interior = interiorScratch.subarray(0, interiorCount).slice();
-  interior.sort(); // Float64Array sort is numeric ascending
-  const interiorP999 = percentileNearestRank(interior, 0.999);
-
-  let maxBoundaryDelta = 0;
-  const outlierBoundaries: number[] = [];
-  for (let i = 0; i < boundaryDelta.length; i++) {
-    if (boundaryDelta[i] > maxBoundaryDelta) maxBoundaryDelta = boundaryDelta[i];
-    if (boundaryDelta[i] > interiorP999) outlierBoundaries.push(boundaryIdx[i]);
-  }
-
-  return {
-    blockSize,
-    editPoints,
-    boundaryCount: boundaryDelta.length,
-    maxBoundaryDelta,
-    maxBoundaryDeltaDbfs: dbfs(maxBoundaryDelta),
-    interiorCount,
-    interiorP999,
-    interiorP999Dbfs: dbfs(interiorP999),
-    outlierBoundaries,
-    verdict: outlierBoundaries.length === 0 ? "WITHIN-INTERIOR-P999" : "OUTLIER",
-  };
-}
-
 export function channelForensics(
   x: Float64Array,
   index: number,
-  opts?: { blockSize?: number; editPoints?: number[] }
+  opts?: { blockSize?: number; editPoints?: number[]; sampleRate?: number }
 ): ChannelForensics {
   const n = x.length;
   let sum = 0;
@@ -332,6 +592,8 @@ export function channelForensics(
   const dcSegmentMaxAbs = dcSegments.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
   const dcSegmentsMatchingOverallSign = dcSegments.filter((v) => v !== 0 && v > 0 === dcOffset > 0).length;
 
+  const sampleRate = opts?.sampleRate ?? 44100;
+
   return {
     index,
     dcOffset,
@@ -340,12 +602,13 @@ export function channelForensics(
     dcSegmentMaxAbs,
     dcSegmentsMatchingOverallSign,
     dcConcentration: dcOffset === 0 ? null : dcSegmentMaxAbs / Math.abs(dcOffset),
+    dcSilent: silentDc(x, sampleRate),
     truePeak: peak,
     truePeakDbfs: dbfs(peak),
     clippedSamples: clipped,
     samplesOverFullScale: over,
     clippedFraction: n > 0 ? clipped / n : 0,
-    lattice: scanLattice(x, opts),
+    lattice: scanLattice(x, { ...opts, sampleRate }),
   };
 }
 
@@ -444,7 +707,7 @@ export function analyzeWav(label: string, bytes: ArrayBuffer, opts: ForensicsOpt
     sampleRate: parsed.sampleRate,
     frames: parsed.frames,
     durationS: parsed.header.durationS,
-    channels: parsed.channels.map((x, i) => channelForensics(x, i, { blockSize: opts.blockSize, editPoints })),
+    channels: parsed.channels.map((x, i) => channelForensics(x, i, { blockSize: opts.blockSize, editPoints, sampleRate: parsed.sampleRate })),
     trim: trimForensics(parsed.channels, parsed.sampleRate, opts.expectedTrimMs),
   };
 }
