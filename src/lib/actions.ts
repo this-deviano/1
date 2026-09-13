@@ -596,7 +596,41 @@ export async function cmdRestoreSnapshot(index: number): Promise<{ ok: boolean; 
   return { ok: true, snapshotCount: list.length };
 }
 
-export function cmdNewSong() {
+/* TASK-024 confirm audit: the app has exactly ONE destructive guard. New Song
+   is IRREVERSIBLE — it deletes song.json, the manifest and the §11.6 history —
+   so it keeps a two-step guard. The guard lives in the ACTION, not on a button,
+   so no path (Rail, palette, console) can bypass it. Every reversible action
+   carries no confirm at all: P-06 undo is the confirmation (no "are you sure"
+   for reversible operations). */
+const NEW_SONG_WINDOW_MS = 3000;
+let pendingNewSongAt = 0;
+
+export function cmdNewSong(): void {
+  const now = Date.now();
+  if (pendingNewSongAt !== 0 && now - pendingNewSongAt <= NEW_SONG_WINDOW_MS) {
+    pendingNewSongAt = 0;
+    setState({ confirmNewSong: false });
+    performNewSong();
+    return;
+  }
+  pendingNewSongAt = now;
+  setState({ confirmNewSong: true });
+  toast("New Song is irreversible — it clears the saved Song, manifest and history. Confirm within 3 s.", "signal");
+  window.setTimeout(() => {
+    if (pendingNewSongAt === now) {
+      pendingNewSongAt = 0;
+      setState({ confirmNewSong: false });
+    }
+  }, NEW_SONG_WINDOW_MS);
+}
+
+/** Disarm the New Song guard (Esc, or an explicit cancel affordance). */
+export function cmdCancelNewSong(): void {
+  pendingNewSongAt = 0;
+  setState({ confirmNewSong: false });
+}
+
+function performNewSong() {
   clearSong();
   if (opfsAvailable()) {
     void (async () => {

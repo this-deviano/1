@@ -23,6 +23,7 @@ export interface StoreState {
   bench: boolean;
   cheat: boolean;
   coachStep: number;
+  confirmNewSong: boolean; // armed two-step guard for the one IRREVERSIBLE action (TASK-024)
   future: Song[]; // redo stack
   past: Song[]; // in-session undo stack (§10.2-capped, R-1(a))
   pastSizes: number[]; // estimated serialized bytes per past entry (parallel array)
@@ -67,6 +68,7 @@ let state: StoreState = {
   bench: false,
   cheat: true,
   coachStep: 0,
+  confirmNewSong: false,
   future: [],
   past: [],
   pastSizes: [],

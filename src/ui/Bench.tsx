@@ -23,6 +23,7 @@ import {
   cmdCycle,
   cmdExportMix,
   cmdLoad,
+  cmdCancelNewSong,
   cmdMetronome,
   cmdNewSong,
   cmdPlayStop,
@@ -196,6 +197,7 @@ function Bench() {
           break;
         case "Escape":
           setState({ cheat: false });
+          cmdCancelNewSong();
           break;
         case "Home":
           cmdReturnZero();
@@ -260,23 +262,9 @@ function Bench() {
 function Rail({ onPalette }: { onPalette: () => void }) {
   const song = useStore((s) => s.song);
   const metronome = useStore((s) => s.metronome);
+  const confirmNew = useStore((s) => s.confirmNewSong); // TASK-024: guard state lives in the action
   const status = useStatus();
   const [clockFmt, setClockFmt] = useState<"bars" | "minsec">("bars");
-  const [confirmNew, setConfirmNew] = useState(false);
-
-  // P-04: inline two-step confirm replaces the native blocking dialog (auto-cancels, Esc cancels)
-  useEffect(() => {
-    if (!confirmNew) return;
-    const t = window.setTimeout(() => setConfirmNew(false), 3000);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setConfirmNew(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [confirmNew]);
 
   return (
     <div className="rail">
@@ -294,15 +282,8 @@ function Rail({ onPalette }: { onPalette: () => void }) {
         </button>
         <button
           className={`grain-btn small ${confirmNew ? "toggle-on" : ""}`}
-          onClick={() => {
-            if (confirmNew) {
-              setConfirmNew(false);
-              cmdNewSong();
-            } else {
-              setConfirmNew(true);
-            }
-          }}
-          title="New Song — click again to confirm"
+          onClick={cmdNewSong}
+          title="New Song — irreversible; click again within 3 s to confirm"
         >
           {confirmNew ? "Sure?" : "New"}
         </button>
