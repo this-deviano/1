@@ -298,7 +298,7 @@ const evidence = {
   results,
   verdict: allStable ? "ALL GRAPHS BIT-STABLE in-process" : "AT LEAST ONE GRAPH VARIES in-process",
 };
-const dir = resolve("docs/evidence/sb005");
+const dir = resolve(".runs/evidence/sb005"); // E-012: scratch only, never the committed record
 mkdirSync(dir, { recursive: true });
 writeFileSync(resolve(dir, "determinism-bisect.json"), JSON.stringify(evidence, null, 2) + "\n");
 console.log(`\nverdict: ${evidence.verdict}`);

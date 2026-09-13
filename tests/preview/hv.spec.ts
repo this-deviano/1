@@ -13,11 +13,12 @@ declare global {
   }
 }
 
-/* This battery writes its numbers to docs/evidence/sb005/. The SB-004 files stay
-   untouched as the historical record, so old and new behaviour can be compared
-   side by side in the ledger (TASK-035 requires the ledger's numbers to come
-   from THIS run, not from earlier evidence files). */
-const EVID = resolve("docs/evidence/sb005");
+/* E-012 (TASK-052): this battery writes EVERY run artifact to an UNTRACKED
+   scratch dir. It never rewrites a committed evidence file. The committed record
+   under docs/evidence/<sb-tag>/ is created only by a deliberate copy during a
+   session, so the ledger's numbers and the bytes on disk cannot drift apart
+   (that churn was the SB-007-B finding). */
+const EVID = resolve(".runs/evidence/sb005");
 mkdirSync(EVID, { recursive: true });
 const EVID5 = EVID;
 const PROXY = "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.";
@@ -232,60 +233,79 @@ test("HV-6 — both themes render Dayshift and Nightshift", async ({ page }) => 
 
 /* ---------------------------------------------------------------- TASK-021 g */
 
-test("P-02-PROXY — fresh-state record journey, timed", async ({ page }) => {
-  await enterBench(page);
-  await page.evaluate(() => window.app.freshState());
+/* R-10 (TASK-053): the journey runs 3× and reports median/min/max. There is NO
+   gate on the spread — the 3,384 → 5,152 ms jump observed in SB-007-B is
+   environment variance in a shared sandbox, not a product regression, and
+   inventing a spread threshold would be threshold-shopping. The 60 s
+   constitution floor (P-02) remains the only gate, applied to every run. */
+test("P-02-PROXY — fresh-state record journey, timed ×3 (median/min/max, R-10)", async ({ page }) => {
+  const runs: number[] = [];
+  let outcome: any = null;
 
-  // The canonical fresh-state reset (runbook HV-3): clear luthier.* + OPFS, reload.
-  const t0 = Date.now();
-  await page.reload();
-  await page.getByRole("button", { name: /launch the bench/i }).click(); // gesture 1
-  await page.waitForSelector(".bench");
-  await page.keyboard.press("r"); // gesture 2 — record (P-22 default arms Keys + Voice)
-  await page.waitForTimeout(2600); // 4-beat count-in at 118 qpm ≈ 2.03 s + margin
-  for (const key of ["z", "x", "c", "v"]) {
-    await page.keyboard.press(key); // musical typing while recording
-    await page.waitForTimeout(70);
-  }
-  await page.keyboard.press(" ");
-  await page.waitForFunction(
-    () => {
+  for (let run = 0; run < 3; run++) {
+    await enterBench(page);
+    await page.evaluate(() => window.app.freshState());
+
+    // The canonical fresh-state reset (runbook HV-3): clear luthier.* + OPFS, reload.
+    const t0 = Date.now();
+    await page.reload();
+    await page.getByRole("button", { name: /launch the bench/i }).click(); // gesture 1
+    await page.waitForSelector(".bench");
+    await page.keyboard.press("r"); // gesture 2 — record (P-22 default arms Keys + Voice)
+    await page.waitForTimeout(2600); // 4-beat count-in at 118 qpm ≈ 2.03 s + margin
+    for (const key of ["z", "x", "c", "v"]) {
+      await page.keyboard.press(key); // musical typing while recording
+      await page.waitForTimeout(70);
+    }
+    await page.keyboard.press(" ");
+    await page.waitForFunction(
+      () => {
+        const song = window.app.song();
+        return song.clips.some((c: any) => c.name.startsWith("Take")) && song.clips.some((c: any) => c.kind === "audio");
+      },
+      null,
+      { timeout: 20_000 }
+    );
+    runs.push(Date.now() - t0);
+
+    outcome = await page.evaluate(async () => {
       const song = window.app.song();
-      return song.clips.some((c: any) => c.name.startsWith("Take")) && song.clips.some((c: any) => c.kind === "audio");
-    },
-    null,
-    { timeout: 20_000 }
-  );
-  const elapsedMs = Date.now() - t0;
+      const midi = song.clips.find((c: any) => c.name.startsWith("Take"));
+      const audio = song.clips.find((c: any) => c.kind === "audio");
+      const ui = window.app.ui();
+      const probe = audio?.media ? await window.app.storage.probeMedia(audio.media.sha) : null;
+      const placement = audio ? song.placements.find((p: any) => p.clip === audio.id) : null;
+      return { midiNotes: midi?.notes.length ?? 0, audio, probe, placementTrack: placement?.track ?? null, ui };
+    });
+  }
 
-  const outcome = await page.evaluate(async () => {
-    const song = window.app.song();
-    const midi = song.clips.find((c: any) => c.name.startsWith("Take"));
-    const audio = song.clips.find((c: any) => c.kind === "audio");
-    const ui = window.app.ui();
-    const probe = audio?.media ? await window.app.storage.probeMedia(audio.media.sha) : null;
-    const placement = audio ? song.placements.find((p: any) => p.clip === audio.id) : null;
-    return { midiNotes: midi?.notes.length ?? 0, audio, probe, placementTrack: placement?.track ?? null, ui };
-  });
+  const sorted = [...runs].sort((a, b) => a - b);
+  const medianMs = sorted[1];
+  const minMs = sorted[0];
+  const maxMs = sorted[2];
 
   evidence("p-02-proxy.json", {
-    elapsedMsFromFirstGestureToClipCommitted: elapsedMs,
+    runsMs: runs,
+    medianMs,
+    minMs,
+    maxMs,
+    spreadMs: maxMs - minMs,
     target_ms: 60_000,
-    midiTakeNotes: outcome.midiNotes,
-    audioClip: outcome.audio?.media ?? null,
-    audioProbe: outcome.probe,
-    placementTrack: outcome.placementTrack,
-    micArmedAtEnd: outcome.ui.micArmed,
-    lastTake: outcome.ui.lastTake,
+    midiTakeNotes: outcome?.midiNotes ?? 0,
+    audioClip: outcome?.audio?.media ?? null,
+    audioProbe: outcome?.probe ?? null,
+    placementTrack: outcome?.placementTrack ?? null,
+    micArmedAtEnd: outcome?.ui?.micArmed ?? null,
+    lastTake: outcome?.ui?.lastTake ?? null,
     verdict:
-      elapsedMs <= 60_000 && outcome.midiNotes > 0 && outcome.probe?.ok && outcome.probe.probe.nonZeroSamples > 0 && outcome.probe.probe.peak > 0
+      runs.every((ms) => ms <= 60_000) && outcome?.midiNotes > 0 && outcome?.probe?.ok && outcome.probe.probe.nonZeroSamples > 0 && outcome.probe.probe.peak > 0
         ? "PASS"
         : "FAIL",
     disclosure:
-      "PROXY: scripted keys, not a human, and the microphone is Chromium's fake device (a synthetic tone). The number is an upper-bound-ish proxy for P-02, not the human stopwatch (HV-3). Scripted headless timing is not comparable to human feel — the maintainer still owns the final stopwatch.",
+      "PROXY: scripted keys, not a human, and the microphone is Chromium's fake device (a synthetic tone). Three runs are reported as median/min/max because the number is environment-sensitive in a shared sandbox (SB-007-B observed 3,384 → 5,152 ms). No gate is placed on the spread (R-10); the 60 s constitution floor is the only gate, and the human stopwatch (HV-3) remains the real one.",
   });
 
-  expect(elapsedMs).toBeLessThanOrEqual(60_000);
+  for (const ms of runs) expect(ms).toBeLessThanOrEqual(60_000);
   expect(outcome.midiNotes).toBeGreaterThan(0);
   expect(outcome.probe?.ok, "media file missing at media/<sha>.wav").toBe(true);
   expect(outcome.probe.probe.nonZeroSamples).toBeGreaterThan(0);

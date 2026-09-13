@@ -248,7 +248,7 @@ const evidence = {
         : "VARIES — app-controlled leg is not deterministic",
   },
 };
-const dir = resolve("docs/evidence/sb005");
+const dir = resolve(".runs/evidence/sb005"); // E-012: scratch only, never the committed record
 mkdirSync(dir, { recursive: true });
 writeFileSync(resolve(dir, "determinism-steps.json"), JSON.stringify(evidence, null, 2) + "\n");
 console.log("\nwrote docs/evidence/sb005/determinism-steps.json\n");

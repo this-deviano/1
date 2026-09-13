@@ -4,6 +4,11 @@ tsconfig.tsbuildinfo
 *.log
 .DS_Store
 
+# E-012 (TASK-052): the battery writes ALL run artifacts here, untracked.
+# Committed evidence under docs/evidence/<sb-tag>/ is created ONLY by a
+# deliberate copy during a session — a later run can never rewrite it.
+.runs/
+
 # E-004 harness artifacts (evidence is committed explicitly under docs/evidence/)
 test-results/
 playwright-report/
