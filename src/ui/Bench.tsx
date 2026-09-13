@@ -3,29 +3,33 @@
    cheat sheet, coach panel, toasts. Zero modal dialogs (P-04). */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getState, setState, useStore } from "../lib/store";
-import { useStatus } from "../lib/status";
+import { getState, setState, useStore, syncEngineFromModel, pushMetronomePrefError } from "../lib/store";
+import { useStatus, useSelfTest, installSelfTests } from "../lib/status";
+import { installDevApi } from "../lib/devapi";
 import { engine } from "../lib/engine";
 import { pushStatus } from "../lib/status";
 import type { Song } from "../lib/model";
 import { ticksToBarBeat, ticksToMinSec } from "../lib/model";
-import { cmdAddCrateClip, cmdFlushTake } from "../lib/actions";
+import { cmdAddCrateClip, cmdFinishTake, cmdPersistHistory, cmdRestoreSession } from "../lib/actions";
 import { cmdLaunchBench } from "../lib/launch";
 
 /* musical typing map — semitone offset from C3 */
 const TYPING: Record<string, number> = {
   z: 0, s: 1, x: 2, d: 3, c: 4, v: 5, g: 6, b: 7, h: 8, n: 9, j: 10, m: 11, ",": 12,
 };
-import { FACTORY_CRATE } from "../lib/factory";
+import { FACTORY_CRATE, saveSong } from "../lib/factory";
 import {
   cmdAddMarker,
   cmdAddTrack,
   cmdCycle,
   cmdExportMix,
   cmdLoad,
+  cmdCancelNewSong,
+  cmdDismissMicError,
   cmdMetronome,
   cmdNewSong,
   cmdPlayStop,
+  cmdToggleMonitor,
   cmdRecord,
   cmdRedo,
   cmdReturnZero,
@@ -82,27 +86,64 @@ function Bench() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const status = useStatus();
 
-  // engine status → bridge (§22.5); takes flush on stop (§17.4)
+  // engine status → bridge (§22.5); takes flush on stop (§17.4, TASK-007 audio path)
   useEffect(() => {
     engine.onStatus = (s) => pushStatus(s);
-    engine.onStop = () => cmdFlushTake();
+    engine.onStop = () => void cmdFinishTake();
     return () => {
       engine.onStatus = null;
       engine.onStop = null;
     };
   }, []);
 
+  // backfill engine live-state from model + persisted pref (TASK-013 ruling)
+  useEffect(() => {
+    syncEngineFromModel();
+  }, []);
+
+  // P-14: a failed metronome-pref write surfaces once, inline, as LR-0005
+  useEffect(() => {
+    pushMetronomePrefError();
+  }, []);
+
+  // dev/verification console hooks — app.selftest.* (status.ts) + window.app (devapi.ts)
+  useEffect(() => {
+    installSelfTests();
+    installDevApi();
+  }, []);
+
   useEffect(() => {
     engine.setSong(song);
   }, [song]);
 
-  // autosave every 30 s when dirty (§10.2) — quietly, no toast
+  // autosave every 30 s when dirty (§10.2) — quietly, no toast; history snapshots ride along (TASK-006)
   useEffect(() => {
     const id = window.setInterval(() => {
       const st = getState();
-      if (st.dirty) cmdSave(true);
+      if (st.dirty) {
+        void cmdSave(true);
+        void cmdPersistHistory();
+      }
     }, 30000);
     return () => window.clearInterval(id);
+  }, []);
+
+  // boot: restore session (OPFS song → history → legacy migration) — TASK-005/006
+  useEffect(() => {
+    void cmdRestoreSession();
+  }, []);
+
+  // P-20: never lose the last 30 s to a tab close — flush on unload
+  useEffect(() => {
+    const onUnload = () => {
+      const st = getState();
+      if (st.dirty) {
+        // synchronous best-effort: legacy mirror (sync API) — OPFS is async-only
+        saveSong(st.song);
+      }
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
   }, []);
 
   // global keymap (Appendix B)
@@ -160,6 +201,7 @@ function Bench() {
           break;
         case "Escape":
           setState({ cheat: false });
+          cmdCancelNewSong();
           break;
         case "Home":
           cmdReturnZero();
@@ -208,6 +250,8 @@ function Bench() {
         <Inspector />
       </div>
       <StatusBar />
+      <MicPanel />
+      <SelfTestPanel />
       {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       <CheatSheet />
       <Coach />
@@ -222,9 +266,10 @@ function Bench() {
 
 function Rail({ onPalette }: { onPalette: () => void }) {
   const song = useStore((s) => s.song);
+  const metronome = useStore((s) => s.metronome);
+  const confirmNew = useStore((s) => s.confirmNewSong); // TASK-024: guard state lives in the action
   const status = useStatus();
   const [clockFmt, setClockFmt] = useState<"bars" | "minsec">("bars");
-  const [tempoOpen, setTempoOpen] = useState(false);
 
   return (
     <div className="rail">
@@ -241,13 +286,11 @@ function Rail({ onPalette }: { onPalette: () => void }) {
           Load
         </button>
         <button
-          className="grain-btn small"
-          onClick={() => {
-            if (window.confirm("Start a new Song? The current one is kept until saved over.")) cmdNewSong();
-          }}
-          title="New Song"
+          className={`grain-btn small ${confirmNew ? "toggle-on" : ""}`}
+          onClick={cmdNewSong}
+          title="New Song — irreversible; click again within 3 s to confirm"
         >
-          New
+          {confirmNew ? "Sure?" : "New"}
         </button>
       </div>
 
@@ -271,10 +314,10 @@ function Rail({ onPalette }: { onPalette: () => void }) {
         >
           ●
         </button>
-        <button className={`transport-btn ${engine.cycle ? "loop-on" : ""}`} title="Cycle (L)" onClick={cmdCycle} aria-label="Cycle">
+        <button className={`transport-btn ${song.cycle ? "loop-on" : ""}`} title="Cycle (L)" onClick={cmdCycle} aria-label="Cycle">
           ↻
         </button>
-        <button className={`transport-btn ${engine.metronome ? "loop-on" : ""}`} title="Metronome (M)" onClick={cmdMetronome} aria-label="Metronome">
+        <button className={`transport-btn ${metronome ? "loop-on" : ""}`} title="Metronome (M)" onClick={cmdMetronome} aria-label="Metronome">
           ▲
         </button>
       </div>
@@ -287,7 +330,6 @@ function Rail({ onPalette }: { onPalette: () => void }) {
         >
           {clockFmt === "bars" ? ticksToBarBeat(status.playheadTick, song.qpm) : ticksToMinSec(status.playheadTick, song.qpm)}
         </button>
-        {tempoOpen && null}
       </div>
 
       <TempoControl qpm={song.qpm} />
@@ -534,6 +576,121 @@ function StatusBar() {
       <span style={{ marginLeft: "auto" }} className="value">
         {dirty ? "unsaved — ctrl+s" : "in session"} · {song.name}
       </span>
+    </div>
+  );
+}
+
+/* TASK-007 microphone surface: the record-armed state, the monitoring switch
+   (default OFF, headphone warning) and LR-0007/LR-0008 failures — all inline,
+   never a modal (P-04, P-14). Renders only when it has something honest to say. */
+function MicPanel() {
+  const micError = useStore((s) => s.micError);
+  const micArmed = useStore((s) => s.micArmed);
+  const monitor = useStore((s) => s.monitor);
+  const lastTake = useStore((s) => s.lastTake);
+  if (!micError && !micArmed && !monitor) return null;
+  return (
+    <div
+      role={micError ? "alert" : "status"}
+      className="mic-panel step-shadow"
+      style={{
+        position: "fixed",
+        left: 16,
+        bottom: 40,
+        zIndex: 120,
+        maxWidth: 420,
+        padding: "10px 12px",
+        background: "var(--grain-paper)",
+        border: `1.5px solid ${micError ? "var(--grain-signal)" : "var(--grain-line)"}`,
+        fontSize: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="micro">{micArmed ? "record-armed · audio input" : "audio input"}</span>
+        <span className="micro" style={{ marginLeft: "auto", color: "var(--grain-ink-64)" }}>
+          monitor {monitor ? "on" : "off"}
+        </span>
+        <button className={`grain-btn small ${monitor ? "toggle-on" : ""}`} onClick={cmdToggleMonitor} title="Input monitoring — default OFF; use headphones">
+          {monitor ? "Mon on" : "Mon off"}
+        </button>
+      </div>
+      {monitor && (
+        <div className="micro" style={{ color: "var(--grain-amber)" }}>
+          Headphones required — monitoring through speakers will feed back.
+        </div>
+      )}
+      {micError && (
+        <div style={{ color: "var(--grain-signal)", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <span>{micError}</span>
+          <button className="grain-btn small" onClick={cmdDismissMicError}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {micError && <div className="micro" style={{ color: "var(--grain-ink-64)" }}>Retry: arm the audio track and press R again.</div>}
+      {lastTake && (
+        <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+          last take · {lastTake.durationS.toFixed(2)} s · peak {lastTake.peak.toFixed(3)} · {lastTake.bytes} B · media/{(lastTake.sha ?? "").slice(0, 12)}…
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* P-14 parity-guard failure surface: red inline panel, never a modal (P-04).
+   Renders only when a self-test has FAILED (or crashed) — success stays quiet
+   in the UI and logs to console. */
+function SelfTestPanel() {
+  const st = useSelfTest();
+  if (st.running || (!st.parity && !st.determinism && !st.error)) return null;
+  const parityFail = st.parity !== null && !st.parity.ok;
+  const detFail = st.determinism !== null && !st.determinism.ok;
+  if (!parityFail && !detFail && !st.error) return null;
+  return (
+    <div
+      role="alert"
+      className="step-shadow"
+      style={{
+        position: "fixed",
+        left: "50%",
+        transform: "translateX(-50%)",
+        bottom: 40,
+        zIndex: 120,
+        padding: "10px 14px",
+        background: "var(--grain-paper)",
+        border: "1.5px solid var(--grain-signal)",
+        color: "var(--grain-signal)",
+        fontSize: 12,
+        maxWidth: 560,
+      }}
+    >
+      <div style={{ fontWeight: 600 }}>
+        LR-0006 · render-parity guard FAILED — exports do not match the live render
+      </div>
+      {st.parity && (
+        <div>
+          measured max|Δ| {st.parity.maxAbsDiff.toExponential(3)} ({st.parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.parity.dbfs.toFixed(1)} dBFS) · ship gate {st.parity.gateDbfs} dBFS {
+            st.parity.gateMet ? "met" : "MISSED"
+          } · constitution floor {st.parity.floorDbfs} dBFS {st.parity.floorMet ? "met" : "NOT met"} · bit-identical {String(st.parity.bitIdentical)}
+        </div>
+      )}
+      {st.parity && (
+        <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+          live {st.parity.liveHash.slice(0, 16)}… · offline {st.parity.offlineHash.slice(0, 16)}… · M2 target: converge to the floor (TASK-023)
+        </div>
+      )}
+      {st.determinism && !st.determinism.ok && (
+        <div>
+          determinism: {st.determinism.hashA.slice(0, 12)}… vs {st.determinism.hashB.slice(0, 12)}… (same-scope, ADR-0002)
+        </div>
+      )}
+      {st.error && <div>self-test error: {st.error}</div>}
+      <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+        console: app.selftest.renderparity() · app.selftest.determinism()
+      </div>
     </div>
   );
 }

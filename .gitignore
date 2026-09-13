@@ -3,3 +3,9 @@ dist/
 tsconfig.tsbuildinfo
 *.log
 .DS_Store
+
+# E-004 harness artifacts (evidence is committed explicitly under docs/evidence/)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

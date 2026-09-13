@@ -2,7 +2,7 @@
    Offline-first (P-18): localStorage; export/import as JSON files. */
 
 import type { Clip, LatticeRow, Note, Song, Track } from "./model";
-import { uid } from "./model";
+import { SEED_DEFAULT, uid } from "./model";
 import { TRACK_PALETTE } from "./model";
 
 /* ---------- Crates ---------- */
@@ -210,6 +210,8 @@ export function makeFactorySong(): Song {
     id: uid("song"),
     name: "First Light",
     qpm: 118,
+    seed: SEED_DEFAULT,
+    cycle: false,
     tracks: [drums, keys, audio],
     clips: [drumClip, keysClip],
     placements,
@@ -237,6 +239,8 @@ export function loadSong(): Song | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Song;
     if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.tracks) || !Array.isArray(parsed.clips)) return null;
+    parsed.seed = (parsed as { seed?: number }).seed ?? SEED_DEFAULT; // legacy songs predate seed (E-28)
+    parsed.cycle = (parsed as { cycle?: boolean }).cycle ?? false; // legacy songs predate the cycle field (TASK-013)
     return parsed;
   } catch {
     return null;

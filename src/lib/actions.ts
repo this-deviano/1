@@ -8,7 +8,9 @@ import {
   createClip,
   createTrack,
   getState,
+  hydrateSession,
   mutate,
+  restoreSong,
   setState,
   undo as storeUndo,
   redo as storeRedo,
@@ -16,6 +18,19 @@ import {
 import type { ClipPlacement } from "./store";
 import { engine } from "./engine";
 import { saveSong, loadSong, clearSong, crateClip, FACTORY_CRATE } from "./factory";
+import { cmdToggleCycle, cmdToggleMetronome, normalizeLegacySong } from "./store";
+import {
+  writeSong,
+  readSong,
+  readHistory,
+  writeHistorySnapshot,
+  migrateFromLocalStorage,
+  usageEstimate,
+  opfsAvailable,
+  writeMedia,
+  sha256Hex,
+} from "./opfs";
+import { micCapture, pcmWavFloat32 } from "./mic";
 import { toast } from "../ui/primitives";
 
 /* ---------- transport ---------- */
@@ -24,19 +39,62 @@ export async function cmdPlayStop() {
   await engine.togglePlay();
 }
 
+/* Record pass (TASK-007 extends TASK-002). An armed AUDIO track turns on
+   microphone capture; an armed MIDI track keeps the existing performance
+   capture. Both can run in the same pass. Stopping lands the takes (cmdFinishTake). */
 export async function cmdRecord() {
   if (engine.recording) {
     engine.stop();
     return;
   }
   const st = getState();
-  const armed = st.song.tracks.filter((t) => t.arm && t.kind === "midi");
-  if (armed.length === 0) {
-    toast("Arm a MIDI track first — click the circle on its header.", "signal");
+  const armedAudio = st.song.tracks.filter((t) => t.arm && t.kind === "audio");
+  const armedMidi = st.song.tracks.filter((t) => t.arm && t.kind === "midi");
+  if (armedAudio.length === 0 && armedMidi.length === 0) {
+    toast("Arm a track first — click the circle on its header.", "signal");
     return;
   }
+
+  if (armedAudio.length > 0) {
+    const opened = await micCapture.open();
+    if (!opened.ok) {
+      setState({ micError: opened.error ?? "LR-0007: microphone unavailable.", micArmed: false });
+      if (armedMidi.length === 0) return; // nothing else to capture — the panel carries the retry
+      toast("Recording MIDI only — microphone unavailable (LR-0007).", "signal");
+    } else {
+      const ctx = await engine.ensure();
+      const attached = await micCapture.attach(ctx);
+      if (!attached.ok) {
+        setState({ micError: attached.error ?? "LR-0007: capture graph failed.", micArmed: false });
+      } else {
+        micCapture.reset();
+        micCapture.monitor(getState().monitor);
+        setState({ micError: null, micArmed: true });
+      }
+    }
+  }
+
   await engine.record();
-  toast("Recording — 4-beat count-in, then play. Space stops.", "ok");
+  const parts = [armedMidi.length ? `${armedMidi.length} MIDI` : "", armedAudio.length ? `${armedAudio.length} audio` : ""]
+    .filter(Boolean)
+    .join(" + ");
+  toast(`Recording ${parts} — 4-beat count-in, then play. Space stops.`, "ok");
+}
+
+/* Input monitoring is opt-in and warns about feedback on enable (TASK-007). */
+export function cmdToggleMonitor(): void {
+  const next = !getState().monitor;
+  setState({ monitor: next });
+  micCapture.monitor(next);
+  toast(
+    next ? "Input monitoring ON — use headphones; speakers will feed back." : "Input monitoring OFF.",
+    next ? "signal" : "ember"
+  );
+}
+
+/** Clear an LR-0007/0008 panel (retry is a fresh cmdRecord). */
+export function cmdDismissMicError(): void {
+  setState({ micError: null });
 }
 
 export function cmdReturnZero() {
@@ -44,15 +102,11 @@ export function cmdReturnZero() {
 }
 
 export function cmdCycle() {
-  engine.cycle = !engine.cycle;
-  engine.notify();
-  toast(engine.cycle ? "Cycle on — loop region active." : "Cycle off.", "ember");
+  cmdToggleCycle(); // TASK-013 ruling: cycle is Song truth — model field first, engine follows
 }
 
 export function cmdMetronome() {
-  engine.metronome = !engine.metronome;
-  engine.notify();
-  toast(engine.metronome ? "Metronome on." : "Metronome off.", "ember");
+  cmdToggleMetronome(); // TASK-013 ruling: metronome is a persisted preference, not Song material
 }
 
 export function cmdSetTempo(qpm: number) {
@@ -489,32 +543,159 @@ export function cmdSetPatternLength(clipId: string, steps: number) {
   }
 }
 
-/* ---------- song ---------- */
+/* ---------- song (TASK-005: OPFS-first, localStorage mirror/fallback) ---------- */
 
-export function cmdSave(quiet = false) {
+async function persistSong(song: Song): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await writeSong(song);
+  if (res.ok) {
+    // best-effort localStorage mirror stays as a crash net (legacy readers keep working)
+    saveSong(song);
+    return { ok: true };
+  }
+  if (res.kind === "unavailable") {
+    // OPFS missing (older browser): legacy localStorage path is the store
+    const legacy = saveSong(song);
+    return legacy.ok ? { ok: true } : { ok: false, error: legacy.error ?? "storage write failed" };
+  }
+  return { ok: false, error: res.error };
+}
+
+export async function cmdSave(quiet = false) {
   const st = getState();
-  const res = saveSong(st.song);
+  const res = await persistSong(st.song);
   if (res.ok) {
     setState({ dirty: false });
-    if (!quiet) toast("Song saved locally.", "ok");
+    if (!quiet) toast("Song saved.", "ok");
   } else {
-    toast(`Save failed: ${res.error}`, "signal");
+    const usage = await usageEstimate();
+    const readout = usage.ok ? ` · ${(usage.value.usage / 1024).toFixed(0)} KB used of ${(usage.value.quota / 1048576).toFixed(0)} MB` : "";
+    toast(`LR-0001: save failed — ${res.error}${readout}`, "signal");
   }
 }
 
-export function cmdLoad() {
-  const loaded = loadSong();
+/** Autosave companion (TASK-006): gzip history snapshots, capped at 100. */
+export async function cmdPersistHistory() {
+  const st = getState();
+  const res = await writeHistorySnapshot(st.song, st.past);
+  if (!res.ok && res.kind !== "unavailable") {
+    console.warn(`[luthier] history snapshot failed: ${res.error}`); // P-14: visible in console; song.json remains the durable copy
+  }
+}
+
+export async function cmdLoad() {
+  const fromOpfs = await readSong();
+  const loaded = fromOpfs.ok && fromOpfs.value ? fromOpfs.value : fromOpfs.ok ? loadSong() : null;
   if (loaded) {
-    setState({ song: loaded, selectedPlacement: null, selectedTrack: loaded.tracks[0]?.id ?? null, dirty: false, past: [], future: [] });
-    engine.setSong(loaded);
-    toast("Song loaded.", "ok");
+    const song = normalizeLegacySong(loaded);
+    // R-1(c): Load is a restore — it PUSHES an undoable entry (the pre-load
+    // Song stays reachable under Ctrl+Z). It never clears history.
+    restoreSong(song);
+    setState({ selectedPlacement: null, selectedTrack: song.tracks[0]?.id ?? null, dirty: false });
+    engine.setSong(song);
+    engine.cycle = song.cycle; // loaded Song carries the cycle field (TASK-013 ruling)
+    toast("Song loaded — undo returns to your work.", "ok");
   } else {
-    toast("No saved Song found.", "signal");
+    toast(fromOpfs.ok ? "No saved Song found." : `Load failed: ${fromOpfs.error}`, "signal");
   }
 }
 
-export function cmdNewSong() {
+/** Boot-time session restore (TASK-006): OPFS song → history stack → legacy. */
+export async function cmdRestoreSession(): Promise<void> {
+  const migration = await migrateFromLocalStorage();
+  if (migration.ok && migration.value.song) {
+    const song = normalizeLegacySong(migration.value.song);
+    hydrateSession(song, []);
+    engine.setSong(song);
+    engine.cycle = song.cycle;
+    syncEngineFromModel();
+    return;
+  }
+  const fromOpfs = await readSong();
+  if (fromOpfs.ok && fromOpfs.value) {
+    const song = normalizeLegacySong(fromOpfs.value);
+    hydrateSession(song, []);
+    engine.setSong(song);
+    engine.cycle = song.cycle;
+    syncEngineFromModel();
+    return;
+  }
+  const hist = await readHistory();
+  if (hist.ok && hist.value) {
+    const song = normalizeLegacySong(hist.value.song);
+    const past = hist.value.past.map(normalizeLegacySong);
+    // undo survives reload (P-06) and the snapshot stack is APPENDED, never
+    // substituted for, whatever is already on the in-session stack (R-1(c)).
+    hydrateSession(song, past);
+    engine.setSong(song);
+    engine.cycle = song.cycle;
+    syncEngineFromModel();
+  }
+}
+
+/* Time Machine restore (R-1(b)/(c)): restore snapshot N and PUSH the
+   pre-restore Song onto the undo stack — restore is a new history entry, never
+   destructive. index 0 is the newest snapshot (readHistory order). */
+export async function cmdRestoreSnapshot(index: number): Promise<{ ok: boolean; error?: string; snapshotCount: number }> {
+  const hist = await readHistory();
+  if (!hist.ok) return { ok: false, error: hist.error, snapshotCount: 0 };
+  if (!hist.value) return { ok: false, error: "No history snapshots stored.", snapshotCount: 0 };
+  const list = [hist.value.song, ...hist.value.past];
+  const target = list[index];
+  if (!target) return { ok: false, error: `Snapshot ${index} out of range (0..${list.length - 1}).`, snapshotCount: list.length };
+  const song = normalizeLegacySong(target);
+  restoreSong(song); // pushes the current Song onto the stack (R-1(c))
+  engine.setSong(song);
+  engine.cycle = song.cycle;
+  toast(`Restored snapshot ${index + 1} of ${list.length} — undo returns to your work.`, "ember");
+  return { ok: true, snapshotCount: list.length };
+}
+
+/* TASK-024 confirm audit: the app has exactly ONE destructive guard. New Song
+   is IRREVERSIBLE — it deletes song.json, the manifest and the §11.6 history —
+   so it keeps a two-step guard. The guard lives in the ACTION, not on a button,
+   so no path (Rail, palette, console) can bypass it. Every reversible action
+   carries no confirm at all: P-06 undo is the confirmation (no "are you sure"
+   for reversible operations). */
+const NEW_SONG_WINDOW_MS = 3000;
+let pendingNewSongAt = 0;
+
+export function cmdNewSong(): void {
+  const now = Date.now();
+  if (pendingNewSongAt !== 0 && now - pendingNewSongAt <= NEW_SONG_WINDOW_MS) {
+    pendingNewSongAt = 0;
+    setState({ confirmNewSong: false });
+    performNewSong();
+    return;
+  }
+  pendingNewSongAt = now;
+  setState({ confirmNewSong: true });
+  toast("New Song is irreversible — it clears the saved Song, manifest and history. Confirm within 3 s.", "signal");
+  window.setTimeout(() => {
+    if (pendingNewSongAt === now) {
+      pendingNewSongAt = 0;
+      setState({ confirmNewSong: false });
+    }
+  }, NEW_SONG_WINDOW_MS);
+}
+
+/** Disarm the New Song guard (Esc, or an explicit cancel affordance). */
+export function cmdCancelNewSong(): void {
+  pendingNewSongAt = 0;
+  setState({ confirmNewSong: false });
+}
+
+function performNewSong() {
   clearSong();
+  if (opfsAvailable()) {
+    void (async () => {
+      const dir = await navigator.storage.getDirectory();
+      for (const name of ["song.json", "song.json.tmp", "manifest.json"] as const) {
+        await dir.removeEntry(name).catch(() => undefined);
+      }
+      await dir.removeEntry("history", { recursive: true }).catch(() => undefined);
+      await dir.removeEntry("media", { recursive: true }).catch(() => undefined);
+    })();
+  }
   window.location.reload();
 }
 
@@ -585,6 +766,75 @@ export function cmdFlushTake() {
   toast(`Take captured — ${notes.length} note${notes.length === 1 ? "" : "s"} on ${track.name}.`, "ok");
 }
 
+/* Stop → take for the AUDIO path (TASK-007): the captured samples become a
+   content-addressed WAV in OPFS media/, and a clip on the armed audio track
+   points at it. Failures surface as LR-0007/LR-0008 and the device is always
+   released — the tab's recording indicator must never stay lit (P-14). */
+export async function cmdFinishTake(): Promise<void> {
+  cmdFlushTake(); // MIDI performance capture (unchanged path)
+  const took = micCapture.take();
+  const wasArmed = getState().micArmed;
+  micCapture.close();
+  if (!wasArmed && took.samples.length === 0) return;
+  setState({ micArmed: false, monitor: false });
+  if (took.samples.length === 0) return;
+
+  const st = getState();
+  const track = st.song.tracks.find((t) => t.arm && t.kind === "audio") ?? st.song.tracks.find((t) => t.kind === "audio");
+  if (!track) {
+    setState({ micError: "LR-0007: the recorded take had no audio track to land on." });
+    return;
+  }
+
+  // Capture starts at arm time, so the take opens with the 4-beat count-in. The
+  // count-in is a transport aid, not song material (audit row B-5), so it is
+  // trimmed from the front and the honest duration/peak are recomputed (P-07).
+  const countInS = (60 / Math.max(1, st.song.qpm)) * 4;
+  const trim = Math.round(countInS * micCapture.sampleRate);
+  const samples = trim > 0 && trim < took.samples.length ? took.samples.subarray(trim) : took.samples;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i]);
+    if (a > peak) peak = a;
+  }
+  const durationS = samples.length / micCapture.sampleRate;
+  const bytes = pcmWavFloat32(samples, micCapture.sampleRate);
+  const sha = await sha256Hex(bytes);
+  const written = await writeMedia(bytes, sha);
+  if (!written.ok) {
+    const id = written.kind === "quota" ? "LR-0008" : "LR-0007";
+    setState({ micError: `${id}: recorded audio could not be stored — ${written.error}` });
+    return;
+  }
+
+  // ticks are derived from the model's tempo, so the clip length is musical truth
+  const ticks = Math.max(STEP_TICKS, Math.round(durationS * (st.song.qpm / 60) * TPQ));
+  const takeNo = st.song.clips.filter((c) => c.kind === "audio").length + 1;
+  const clip: Clip = {
+    id: uid("clp"),
+    kind: "audio",
+    name: `Audio Take ${takeNo}`,
+    length: ticks,
+    color: track.color,
+    notes: [],
+    pattern: null,
+    media: { sha, bytes: written.value.bytes, durationS, sampleRate: micCapture.sampleRate, channels: 1 },
+  };
+  const start = snapToStep(engine.startTick);
+  mutate((s) => {
+    s.clips.push(clip);
+    s.placements.push({ id: uid("plc"), clip: clip.id, track: track.id, start, gain: 0, transpose: 0, mute: false });
+  });
+  setState({
+    micError: null,
+    lastTake: { sha, bytes: written.value.bytes, durationS, peak },
+  });
+  toast(
+    `Audio take captured — ${durationS.toFixed(2)} s (count-in trimmed), peak ${peak.toFixed(3)} → media/${sha.slice(0, 12)}….`,
+    "ok"
+  );
+}
+
 /* ---------- undo / redo (P-06) ---------- */
 
 export function cmdUndo() {
@@ -601,6 +851,8 @@ import { getStatus } from "./status";
 function getStatusTick(): number {
   return getStatus().playheadTick;
 }
+
+import { syncEngineFromModel } from "./store";
 
 export function selectedPlacementDetail(): { placement: ClipPlacement; track: Track; song: Song } | null {
   const st = getState();

@@ -1091,13 +1091,25 @@ ol {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(
-    to top,
-    var(--grain-ok) 0%,
-    var(--grain-ok) 55%,
-    var(--grain-amber) 78%,
-    var(--grain-signal) 100%
-  );
+  background: var(--grain-ok); /* solid fill — gradients are forbidden in functional UI (G-12) */
+  z-index: 0;
+}
+/* Zone notches mark the amber/signal thresholds without a gradient (G-12). */
+.grain-meter::before,
+.grain-meter::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grain-ink-40);
+  z-index: 1;
+}
+.grain-meter::before {
+  bottom: 78%; /* amber zone start */
+}
+.grain-meter::after {
+  bottom: 90%; /* signal zone start */
 }
 
 /* ---------- Overlays ---------- */
@@ -1250,6 +1262,12 @@ ol {
 .inline-error .body {
   color: var(--grain-ink-64);
   font-size: 12px;
+}
+
+/* Mic surface (TASK-007) — inline, non-modal, same panel language as .inline-error */
+.mic-panel {
+  font: var(--grain-type-small);
+  color: var(--grain-ink-88);
 }
 
 /* Splash (§6.11.1) */

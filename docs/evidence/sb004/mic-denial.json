@@ -1,0 +1,9 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "micError": "LR-0007: microphone unavailable (NotFoundError). No input device was found. Requested device not found",
+  "panelVisible": true,
+  "panelText": "AUDIO INPUT MONITOR OFF Mon off LR-0007: microphone unavailable (NotFoundError). No input device was found. Requested device not found Dismiss RETRY: ARM THE AUDIO TRACK AND PRESS R AGAIN.",
+  "pageErrors": [],
+  "verdict": "PASS",
+  "disclosure": "Denial is real (headless Chromium refuses the unanswerable permission prompt); the harness does not stub getUserMedia."
+}

@@ -1,0 +1,34 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "determinism": {
+    "ok": false,
+    "hashA": "1fe14423c9a61c10a09d61bf616541d91e2e8ff460448d54af1e5207b9ce8e2a",
+    "hashB": "0a0dc8f266380d2460e40e48cd63f005608a0b9889fb4febe92de34d85849eab",
+    "bitIdentical": false,
+    "maxAbsDiff": 4.172325134277344e-7,
+    "dbfs": -127.59243711842585,
+    "samples": 423529
+  },
+  "fourRenderDiagnostic": {
+    "hashes": [
+      "8d0b5940e6fadb8fbb732ac739236716b15efd711f952de2fe2ae21f3e4e6a66",
+      "1b06efaac575aefef8ec310bd2e393b711df176753ff764eceb969dbf426d149",
+      "86d287725a936f062e9e0772a01040286d362183a3e59fdb9a391ddf8a365160",
+      "ec933ed5222f23f625bd0c78668f4d70d03e546eeb77b6930d5957d7757bbae0"
+    ],
+    "maxDiffVsFirst": [
+      0,
+      4.172325134277344e-7,
+      4.172325134277344e-7,
+      4.76837158203125e-7
+    ],
+    "sameAsFirst": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "verdict": "FAIL",
+  "disclosure": "Scope is ADR-0002: same build, same context configuration, one Song, two in-memory renders. The 4-render diagnostic separates a one-time warm-up artifact from true nondeterminism; the SHA-256 criterion is NOT relaxed here — the tolerance question is constitutional (AMM-003-candidate), not a gate to quietly widen."
+}
