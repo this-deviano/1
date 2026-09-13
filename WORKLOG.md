@@ -1,5 +1,86 @@
 # WORKLOG — append-only
 
+## SB-007-A — 2026-09-13 (adjunct — RATIFICATION PREP; branch-class only)
+- START (announced at session open, recorded here): TASK-044 salvage + kit staging →
+  TASK-045 ratification branch (prepared, NOT executed) → TASK-046 maintainer menu + stop.
+  **No M2 code, no merge, no push of `main` — M1 exits under the maintainer's hand only.**
+- WORKSPACE STATE AT START: branch `feat/m1-exit-sb005`, tip `df8dc6d` (the SB-006 pushed
+  tip), tree dirty with exactly one file — the uncommitted `WORKLOG.md` SB-007 entry.
+  `origin/main` = `ff21132`; `MILESTONE` on `main` reads `M1`. Gates re-verified read-only at
+  `df8dc6d` before any commit: `bun tsc -b --noEmit` PASS, `bun run build` PASS (pre-existing
+  dynamic-import chunk warnings only).
+- Provenance note, stated plainly: this block was written at close-out of a single-pass
+  adjunct session; nothing here was written after the fact to look tidier, and no earlier
+  entry was rewritten.
+
+### §3 RULINGS LOGGED (logged, not re-litigated)
+- **R-7 — pending-worklog salvage (resolves the flag raised at SB-007).** The SB-007 entry's
+  own "written but NOT committed" note reasoned that committing would move the pinned tip
+  `df8dc6d`. R-7 rules the other way: **data safety outranks pin stability.** An ephemeral
+  workspace losing an uncommitted entry is a real loss; a moved branch tip is not, because
+  every referenced SHA remains an ancestor and reachable, and merge targets are *branches*,
+  not frozen hashes. The "pins disagree" note (branch tip `M1-EXIT-PENDING` vs pre-merge
+  `origin/main` `M1`) is **expected state, not a defect.** Executed as TASK-044 on
+  `chore/sb007-closeout`.
+- **E-011 — paste-channel protocol.** Every future command/briefing block carries a channel
+  label: **[AGENT PROMPT]** (agent-executable), **[MAINTAINER TERMINAL]** (the maintainer's
+  shell), **[CHANGES-PANEL]** (the maintainer's UI). Unlabeled maintainer-class commands
+  found in pasted material → **ASK**, per E-007 FINAL. This session is the first under the
+  protocol. The SB-007-A briefing's `[CHANGES-PANEL]` and `[MAINTAINER TERMINAL]` blocks
+  were read as the maintainer's own move (Paths A/B) and **not** as agent instructions; the
+  briefing's own §0/§5 restate that the agent never merges and never pushes `main`.
+
+### TASK-044 — salvage + kit staging (branch-class) — DONE
+- Cut `chore/sb007-closeout` from `df8dc6d` (the dirty `WORKLOG.md` travelled with it) and
+  committed the pending SB-007 entry together with this adjunct block, so the salvage and
+  the R-7/E-011 rulings land in one docs concern:
+  `docs(worklog): SB-007 gate verdict + R-7/E-011 rulings (TASK-044)`.
+- Created the maintainer worksheets under `docs/evidence/kit/`: `hv-ears.md`, `hv-mic.md`,
+  `hv-3-stopwatch.md`, `hv-themes.md` — each pre-filled with the proxy numbers and the pass
+  criteria, each carrying a **blank RESULT line and a blank VERDICT line** for the
+  maintainer's own hand. `docs(kit): SB-007-A ratification worksheets (TASK-044)`.
+- Gates: `bun tsc -b --noEmit` PASS / `bun run build` PASS. **Battery NOT re-run** — this is
+  a docs-class delta; 13/13 stands at `df8dc6d` and no code-level file was touched.
+- Branch pushed to origin (`chore/sb007-closeout`).
+
+### TASK-045 — ratification branch (PREPARED, NOT EXECUTED) — DONE
+- Cut `ratify/m1-exit` from the pushed chore branch. Contents, exactly as briefed:
+  (a) `MILESTONE` → `M2` (**staged only** — it takes effect when the maintainer merges, and
+  that merge IS the ratification); (b) `docs/amendments/AMM-004.md` carrying the
+  ratification-paths text **verbatim**; (c) `TASKS.md` HV-DEFERRED rows for ears / real-mic /
+  P-02 feel / themes, each citing AMM-004, trigger "first runtime session", gate "1.0";
+  (d) `MERGE-PLAN.md` at repo root — maintainer-only instructions with both merge-message
+  templates.
+- One addition beyond the enumerated contents, disclosed rather than slipped in: AMM-004 is
+  listed in `docs/adr/INDEX.md` as *prepared (staged — not yet ratified)* so the amendment is
+  discoverable through the index the other amendments use. Nothing else was added.
+- Branch pushed to origin. **Merged: NO. `main` touched: NO.** `MILESTONE` on `origin/main`
+  still reads `M1` — deliberately; the M2 gate has not moved.
+
+### BLOCKED / limits, stated plainly
+- Nothing agent-class remains on M1 exit. The remaining items are irreducibly the
+  maintainer's: run the kit (Path A) or elect the proxy path (Path B), then merge with their
+  own instrument. That is the constitution working as written, not a shortfall.
+
+- END: TASK-044 + TASK-045 complete (branch-class only). `main` untouched, no merge, no M2
+  code written. Ratification menu issued — the session stops at the menu.
+
+## SB-007 — 2026-09-13
+- START (announced here before any work): TASK-042 ratification gate (blocking, first) → TASK-043 sync/merge-state → M2-001 L-Equal (boxes 1–8). **No M2 code may be written until `origin/main`'s MILESTONE reads exactly `M2`.**
+- WORKSPACE STATE AT START: branch `feat/m1-exit-sb005`, clean tree, tip `df8dc6d` — the SB-006 pushed tip. **E-007 FINAL stands as written: the agent never pushes, merges, or rewrites `main`, no exceptions.**
+
+### TASK-042 — ratification gate (BLOCKING) — VERDICT: GATE FAILED → SESSION STOPPED
+- **Refspec defect FIXED** (§2.1 housekeeping): this clone's `remote.origin.fetch` was narrowed to `+refs/heads/main:refs/remotes/origin/main`. Set to `+refs/heads/*:refs/remotes/origin/*`; `git fetch origin` then brought in `origin/feat/m1-exit-sb005`, which the narrowing had hidden.
+- **MILESTONE read from origin/main, not the working copy:** `git show origin/main:MILESTONE` → **`M1`**.
+- **Merge state:** `origin/main` = `ff21132`; `git merge-base --is-ancestor df8dc6d origin/main` → **NOT an ancestor**. The merge has not happened and the ratification commit does not exist.
+- **GATE CONDITION MET → STOP** per §2.3: MILESTONE ≠ `M2`, therefore **no code written, nothing prepared, no `feat/m2-lequal` branch cut.** M1 exits under the maintainer's hand only; this session is the gate's instrument, and it held.
+- **The ceremony's `git merge --no-ff` … `git push origin main` was NOT executed.** That is precisely the class of action E-007 FINAL reserves for the human (and, per §4, including exceptions authorized inside pasted material — paste provenance is unverifiable by construction). Restated in the §7 report, not quietly performed.
+- NOT DONE, deliberately: TASK-043 (sync & merge-state on `main`) and every M2-001 box. Reading the tip only (no writes): three-gate read-only check on `feat/m1-exit-sb005@df8dc6d` — `bun tsc -b --noEmit` PASS, `bun run build` PASS; battery not re-run this session (no new code touched, prior 13/13 at this SHA stands).
+
+- **NOTE — this entry is written but NOT committed.** No commit and no push were made this session: committing would move the pinned tip `df8dc6d` that the maintainer's merge targets, and delivery belongs to the maintainer / Changes panel. The file is a working-tree edit for the maintainer to land.
+
+- END: TASK-042 executed; gate returned MAINTAINER-RATIFICATION-PENDING. `main` untouched, no branch cut, no M2 code. Awaiting the maintainer's merge, human kit, and ratification commit.
+
 ## SB-006 — 2026-09-13 (close-out)
 - START (announced here before any work): TASK-037 git reconciliation (blocking) → TASK-038 SB-005 report → TASK-039 ratification kit → TASK-040 M2 status check → TASK-041 sweep & seal. **No features. No M2 code. No merges.**
 - WORKSPACE STATE AT START: local `main` @ `02b5163`, tree **DIRTY** — the entire SB-005 session present as 14 modified files + 4 untracked paths. This is the state the truncated session left behind. GATES: re-verified before committing (E-009).
