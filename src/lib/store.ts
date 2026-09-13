@@ -3,6 +3,8 @@
 
 import { useSyncExternalStore } from "react";
 import type { Clip, InstrumentId, Note, Placement, Song, Track } from "./model";
+import { engine } from "./engine";
+import { toast } from "../ui/primitives";
 import { MAX_UNDO_STEPS, SEED_DEFAULT, uid } from "./model";
 
 export interface ClipPlacement extends Placement {
@@ -23,9 +25,33 @@ export interface StoreState {
   coachStep: number;
   future: Song[]; // redo stack
   past: Song[]; // undo stack
+  metronome: boolean; // persisted preference — NOT musical truth, not undoable, not in Song (SB-003 §4 ruling)
+  metronomePrefError: string | null; // LR surface for pref-write failure (P-14)
+  metronomeSource: "model" | "pref" | "session"; // provenance of the live metronome state
 }
 
 let listeners: (() => void)[] = [];
+
+const METRONOME_KEY = "luthier.metronome.v1";
+
+function loadMetronomePref(): boolean {
+  try {
+    return localStorage.getItem(METRONOME_KEY) === "1"; // missing/corrupt = off (fail-safe)
+  } catch {
+    return false;
+  }
+}
+
+function saveMetronomePref(on: boolean): boolean {
+  try {
+    localStorage.setItem(METRONOME_KEY, on ? "1" : "0");
+    return true;
+  } catch {
+    return false; // caller surfaces as LR-#### (P-14)
+  }
+}
+
+export { METRONOME_KEY, loadMetronomePref, saveMetronomePref };
 
 let state: StoreState = {
   song: makeEmptySong(),
@@ -41,6 +67,9 @@ let state: StoreState = {
   coachStep: 0,
   future: [],
   past: [],
+  metronome: loadMetronomePref(),
+  metronomePrefError: null,
+  metronomeSource: "pref",
 };
 
 function makeEmptySong(): Song {
@@ -50,6 +79,7 @@ function makeEmptySong(): Song {
     name: "Untitled Song",
     qpm: 120,
     seed: SEED_DEFAULT,
+    cycle: false,
     tracks: [],
     clips: [],
     placements: [],
@@ -119,6 +149,61 @@ export function getState(): StoreState {
 export function setState(patch: Partial<StoreState>) {
   state = { ...state, ...patch };
   emit();
+}
+
+/* Legacy Songs loaded from localStorage predate song.cycle; normalize once
+   so every consumer can read a boolean. Model truth stays authoritative. */
+export function normalizeLegacySong(song: Song): Song {
+  if (typeof song.cycle === "boolean") return song;
+  return { ...song, cycle: false };
+}
+
+/* Cycle (loop) engaged is Song model truth (TASK-013 ruling): persisted with
+   the song, survives reload, undoable with every other musical field. The
+   undo-exclusion question is tracked as an AMM-001 candidate (AG-05 path). */
+export function cmdToggleCycle() {
+  mutate((s) => {
+    s.cycle = !s.cycle;
+  });
+  if (engine.song !== null) {
+    engine.cycle = getState().song.cycle;
+    engine.notify();
+    toast(getState().song.cycle ? "Cycle on — loop region active." : "Cycle off.", "ember");
+  }
+}
+
+/* Metronome is a persisted preference (not Song material, not undoable). */
+export function cmdToggleMetronome() {
+  const next = !state.metronome;
+  if (saveMetronomePref(next)) {
+    setState({ metronome: next, metronomePrefError: null, metronomeSource: "pref" });
+  } else {
+    setState({
+      metronome: next,
+      metronomePrefError: "LR-0005: metronome preference could not be saved (storage quota).",
+      metronomeSource: "session",
+    });
+  }
+  if (engine.song !== null) {
+    engine.metronome = next;
+    engine.notify();
+    toast(next ? "Metronome on." : "Metronome off.", "ember");
+  }
+}
+
+/* One-time hook: backfill the engine's live booleans from model + pref.
+   Called by Bench once on mount (surface sync, no authority transfer). */
+export function syncEngineFromModel() {
+  const st = getState();
+  engine.cycle = st.song.cycle;
+  engine.metronome = st.metronome;
+}
+
+export function pushMetronomePrefError() {
+  const err = state.metronomePrefError;
+  if (!err) return;
+  toast(err, "signal");
+  setState({ metronomePrefError: null });
 }
 
 export function useStore<T>(selector: (s: StoreState) => T): T {

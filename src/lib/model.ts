@@ -86,6 +86,7 @@ export interface Song {
   name: string;
   qpm: number;
   seed: number; // synthesis PRNG seed — E-28 deterministic render (additive, schema-compatible)
+  cycle: boolean; // cycle (loop) engaged — musical truth, must survive reload (TASK-013 ruling); additive, schema-compatible
   tracks: Track[];
   clips: Clip[];
   placements: Placement[];

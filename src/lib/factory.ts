@@ -211,6 +211,7 @@ export function makeFactorySong(): Song {
     name: "First Light",
     qpm: 118,
     seed: SEED_DEFAULT,
+    cycle: false,
     tracks: [drums, keys, audio],
     clips: [drumClip, keysClip],
     placements,
@@ -239,6 +240,7 @@ export function loadSong(): Song | null {
     const parsed = JSON.parse(raw) as Song;
     if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.tracks) || !Array.isArray(parsed.clips)) return null;
     parsed.seed = (parsed as { seed?: number }).seed ?? SEED_DEFAULT; // legacy songs predate seed (E-28)
+    parsed.cycle = (parsed as { cycle?: boolean }).cycle ?? false; // legacy songs predate the cycle field (TASK-013)
     return parsed;
   } catch {
     return null;

@@ -43,7 +43,7 @@ class LuthierEngine {
   startTick = 0;
   private startCtxTime = 0;
   private scheduledUntilTick = 0;
-  private song: Song | null = null;
+  song: Song | null = null;
   private tickAtLastSchedule = 0;
   private lastLoopWrap = 0;
   private rng: () => number = seedStream(SEED_DEFAULT, STREAM_TAGS.LIVE_NOISE); // E-28/E-003: seeded synthesis noise

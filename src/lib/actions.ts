@@ -16,6 +16,7 @@ import {
 import type { ClipPlacement } from "./store";
 import { engine } from "./engine";
 import { saveSong, loadSong, clearSong, crateClip, FACTORY_CRATE } from "./factory";
+import { cmdToggleCycle, cmdToggleMetronome, normalizeLegacySong } from "./store";
 import { toast } from "../ui/primitives";
 
 /* ---------- transport ---------- */
@@ -44,15 +45,11 @@ export function cmdReturnZero() {
 }
 
 export function cmdCycle() {
-  engine.cycle = !engine.cycle;
-  engine.notify();
-  toast(engine.cycle ? "Cycle on — loop region active." : "Cycle off.", "ember");
+  cmdToggleCycle(); // TASK-013 ruling: cycle is Song truth — model field first, engine follows
 }
 
 export function cmdMetronome() {
-  engine.metronome = !engine.metronome;
-  engine.notify();
-  toast(engine.metronome ? "Metronome on." : "Metronome off.", "ember");
+  cmdToggleMetronome(); // TASK-013 ruling: metronome is a persisted preference, not Song material
 }
 
 export function cmdSetTempo(qpm: number) {
@@ -505,8 +502,10 @@ export function cmdSave(quiet = false) {
 export function cmdLoad() {
   const loaded = loadSong();
   if (loaded) {
-    setState({ song: loaded, selectedPlacement: null, selectedTrack: loaded.tracks[0]?.id ?? null, dirty: false, past: [], future: [] });
-    engine.setSong(loaded);
+    const song = normalizeLegacySong(loaded);
+    setState({ song, selectedPlacement: null, selectedTrack: song.tracks[0]?.id ?? null, dirty: false, past: [], future: [] });
+    engine.setSong(song);
+    engine.cycle = song.cycle; // loaded Song carries the cycle field (TASK-013 ruling)
     toast("Song loaded.", "ok");
   } else {
     toast("No saved Song found.", "signal");

@@ -3,7 +3,7 @@
    cheat sheet, coach panel, toasts. Zero modal dialogs (P-04). */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getState, setState, useStore } from "../lib/store";
+import { getState, setState, useStore, syncEngineFromModel, pushMetronomePrefError } from "../lib/store";
 import { useStatus } from "../lib/status";
 import { engine } from "../lib/engine";
 import { pushStatus } from "../lib/status";
@@ -90,6 +90,16 @@ function Bench() {
       engine.onStatus = null;
       engine.onStop = null;
     };
+  }, []);
+
+  // backfill engine live-state from model + persisted pref (TASK-013 ruling)
+  useEffect(() => {
+    syncEngineFromModel();
+  }, []);
+
+  // P-14: a failed metronome-pref write surfaces once, inline, as LR-0005
+  useEffect(() => {
+    pushMetronomePrefError();
   }, []);
 
   useEffect(() => {
@@ -222,6 +232,7 @@ function Bench() {
 
 function Rail({ onPalette }: { onPalette: () => void }) {
   const song = useStore((s) => s.song);
+  const metronome = useStore((s) => s.metronome);
   const status = useStatus();
   const [clockFmt, setClockFmt] = useState<"bars" | "minsec">("bars");
   const [confirmNew, setConfirmNew] = useState(false);
@@ -290,10 +301,10 @@ function Rail({ onPalette }: { onPalette: () => void }) {
         >
           ●
         </button>
-        <button className={`transport-btn ${engine.cycle ? "loop-on" : ""}`} title="Cycle (L)" onClick={cmdCycle} aria-label="Cycle">
+        <button className={`transport-btn ${song.cycle ? "loop-on" : ""}`} title="Cycle (L)" onClick={cmdCycle} aria-label="Cycle">
           ↻
         </button>
-        <button className={`transport-btn ${engine.metronome ? "loop-on" : ""}`} title="Metronome (M)" onClick={cmdMetronome} aria-label="Metronome">
+        <button className={`transport-btn ${metronome ? "loop-on" : ""}`} title="Metronome (M)" onClick={cmdMetronome} aria-label="Metronome">
           ▲
         </button>
       </div>

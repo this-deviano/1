@@ -33,3 +33,6 @@ export const STREAM_TAGS = {
   LIVE_NOISE: "luthier/noise/live",
   OFFLINE_NOISE: "luthier/noise/offline",
 } as const;
+
+/** The set of stream tags used by the app (exhaustive switch aid). */
+export type StreamTag = (typeof STREAM_TAGS)[keyof typeof STREAM_TAGS];
