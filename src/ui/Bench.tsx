@@ -23,6 +23,8 @@ import {
   cmdAddTrack,
   cmdCycle,
   cmdExportMix,
+  cmdExportChoice,
+  cmdCancelExport,
   cmdLoad,
   cmdCancelNewSong,
   cmdDismissMicError,
@@ -153,6 +155,16 @@ function Bench() {
       const typing = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
       if (typing && !(e.ctrlKey || e.metaKey)) return;
 
+      // R-9 export choice panel: while a hot export waits, its keys win — they
+      // are the three keyboard paths P-11 requires (A / 1 / 3, Esc cancels).
+      if (getState().exportPrompt) {
+        const k = e.key.toLowerCase();
+        if (k === "a") { e.preventDefault(); cmdExportChoice("as-is"); return; }
+        if (e.key === "1") { e.preventDefault(); cmdExportChoice("normalize", -1.0); return; }
+        if (e.key === "3") { e.preventDefault(); cmdExportChoice("normalize", -0.3); return; }
+        if (e.key === "Escape") { e.preventDefault(); cmdCancelExport(); return; }
+      }
+
       const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((v) => !v); return; }
       if (ctrl && e.key.toLowerCase() === "s") { e.preventDefault(); cmdSave(); return; }
@@ -251,6 +263,7 @@ function Bench() {
       </div>
       <StatusBar />
       <MicPanel />
+      <ExportPanel />
       <SelfTestPanel />
       {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       <CheatSheet />
@@ -636,6 +649,62 @@ function MicPanel() {
           last take · {lastTake.durationS.toFixed(2)} s · peak {lastTake.peak.toFixed(3)} · {lastTake.bytes} B · media/{(lastTake.sha ?? "").slice(0, 12)}…
         </div>
       )}
+    </div>
+  );
+}
+
+/* R-9 (TASK-051) export choice panel — inline, non-modal, keyboard-accessible.
+   It renders ONLY when a rendered export's sample peak exceeded 0 dBFS, and it
+   never applies a gain move of its own: the user picks, or nothing is delivered
+   (P-04, P-14, P-15). */
+function ExportPanel() {
+  const prompt = useStore((s) => s.exportPrompt);
+  if (!prompt) return null;
+  return (
+    <div
+      role="status"
+      aria-label="Export peak guard"
+      className="step-shadow"
+      style={{
+        position: "fixed",
+        left: "50%",
+        transform: "translateX(-50%)",
+        bottom: 40,
+        zIndex: 130,
+        width: "min(640px, calc(100vw - 32px))",
+        padding: "12px 14px",
+        background: "var(--grain-paper)",
+        border: "1.5px solid var(--grain-amber)",
+        fontSize: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div className="micro" style={{ color: "var(--grain-amber)" }}>
+        export · sample peak over 0 dBFS
+      </div>
+      <div>
+        This mix's <strong>sample peak</strong> is {prompt.samplePeak.toFixed(6)} ({prompt.peakDbfs >= 0 ? "+" : ""}
+        {prompt.peakDbfs.toFixed(2)} dBFS). An integer DAC will clip this file.
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button className="grain-btn small" onClick={() => cmdExportChoice("as-is")} title="Export as-is (A) — byte-identical to the pre-guard render">
+          Export as-is <span className="key">A</span>
+        </button>
+        <button className="grain-btn small primary" onClick={() => cmdExportChoice("normalize", -1.0)} title="Scale so the sample peak lands at −1.0 dB (1)">
+          Scale to −1.0 dB <span className="key">1</span>
+        </button>
+        <button className="grain-btn small" onClick={() => cmdExportChoice("normalize", -0.3)} title="Scale so the sample peak lands at −0.3 dB (3)">
+          Scale to −0.3 dB <span className="key">3</span>
+        </button>
+        <button className="grain-btn small" onClick={cmdCancelExport} title="Cancel export (Esc)">
+          Cancel <span className="key">Esc</span>
+        </button>
+      </div>
+      <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+        Label is <em>sample peak</em>, never "true peak" — no oversampling is performed (P-07). Nothing is normalized silently.
+      </div>
     </div>
   );
 }

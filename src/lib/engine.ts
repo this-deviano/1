@@ -32,6 +32,57 @@ const PREROLL_S = 0.05; // offline voices start at t+PREROLL; live mapping uses 
 export const MASTER_GAIN_DB = 20 * Math.log10(MASTER_GAIN);
 export { EXPORT_SR, PREROLL_S, MASTER_GAIN };
 
+/* ---------- R-9 export peak guard (TASK-051, SB-007-C) ----------
+   The first absolute-audio measurement in the project's history (SB-007-B) found
+   the reference export peaking at +1.65 dBFS with 250 samples/channel strictly
+   over full scale (FND-01). Parity and determinism measure DIFFERENCES between
+   paths and can never see absolute level, so this guard is the missing absolute
+   check. P-15: as-is stays byte-identical and is NEVER silently normalized.
+   P-07: the reported number is the SAMPLE peak (no oversampling ⇒ not a
+   true-peak meter) and is labelled as such wherever a user can see it. */
+export const EXPORT_TARGET_DBFS = -1.0;
+/** Targets offered in the UI choice panel (R-9). */
+export const EXPORT_TARGET_OPTIONS_DBFS = [-1.0, -0.3] as const;
+export type PeakPolicy = "as-is" | "normalize";
+export interface PeakGuardOptions {
+  peakPolicy?: PeakPolicy;
+  /** Only consulted when peakPolicy === "normalize"; default EXPORT_TARGET_DBFS. */
+  targetDbfs?: number;
+}
+export interface RenderWavResult {
+  blob: Blob;
+  policy: PeakPolicy;
+  targetDbfs: number;
+  /** Sample peak magnitude (max |x| across channels) — no oversampling. */
+  samplePeak: number;
+  measuredPeakDbfs: number | null;
+  overFullScale: boolean;
+  /** dB applied when normalizing; exactly 0 for as-is (P-15: no hidden gain move). */
+  scaledByDb: number;
+  /** Non-null when an as-is export is over 0 dBFS — API callers cannot miss it. */
+  warning: string | null;
+}
+
+/** Max |x| across every channel — the guard's measurement (P-07). */
+export function samplePeakOf(buffer: AudioBuffer): number {
+  let peak = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      const a = data[i] < 0 ? -data[i] : data[i];
+      if (a > peak) peak = a;
+    }
+  }
+  return peak;
+}
+
+/** Linear gain that moves `samplePeak` onto `targetDbfs`, preserving the stereo
+    image (one global factor, never per-channel). */
+export function scaleFactorToTarget(peak: number, targetDbfs: number): number {
+  if (!(peak > 0)) return 1;
+  return Math.pow(10, targetDbfs / 20) / peak;
+}
+
 export interface EngineStatus {
   running: boolean;
   recording: boolean;
@@ -523,9 +574,38 @@ class LuthierEngine {
     return ctx.startRendering();
   }
 
-  async renderWav(song: Song, tailSeconds = 1.5): Promise<Blob> {
+  /* R-9 — the export path, with the peak guard. The as-is branch is byte-identical
+     to the pre-guard output: it is `wavBlob(await renderBuffer(...))`, untouched.
+     Nothing is ever silently normalized; a hot as-is export returns the bytes the
+     user asked for AND a warning the caller cannot miss (P-14/P-15). */
+  async renderWav(song: Song, tailSeconds = 1.5, opts: PeakGuardOptions = {}): Promise<RenderWavResult> {
     const buf = await this.renderBuffer(song, tailSeconds);
-    return wavBlob(buf);
+    return this.encodeWithPeakGuard(buf, opts);
+  }
+
+  /** Encode an already-rendered buffer under the peak guard. The UI's inline
+      choice panel renders ONCE and reuses the buffer, so the panel and the
+      programmatic API share this single code path (E-006: no second copy). */
+  encodeWithPeakGuard(buf: AudioBuffer, opts: PeakGuardOptions = {}): RenderWavResult {
+    const policy: PeakPolicy = opts.peakPolicy ?? "as-is";
+    const targetDbfs = opts.targetDbfs ?? EXPORT_TARGET_DBFS;
+    const samplePeak = samplePeakOf(buf);
+    const measuredPeakDbfs = samplePeak > 0 ? 20 * Math.log10(samplePeak) : null;
+    const overFullScale = samplePeak > 1.0;
+    let scaledByDb = 0;
+    let blob: Blob;
+    if (policy === "normalize" && samplePeak > 0) {
+      const factor = scaleFactorToTarget(samplePeak, targetDbfs);
+      scaledByDb = 20 * Math.log10(factor);
+      blob = wavBlobScaled(buf, factor);
+    } else {
+      blob = wavBlob(buf);
+    }
+    const warning =
+      policy === "as-is" && overFullScale && measuredPeakDbfs !== null
+        ? `Export sample peak is ${samplePeak.toFixed(6)} (${measuredPeakDbfs >= 0 ? "+" : ""}${measuredPeakDbfs.toFixed(2)} dBFS), over 0 dBFS. It will clip on any integer DAC; scale it or export as-is knowingly.`
+        : null;
+    return { blob, policy, targetDbfs, samplePeak, measuredPeakDbfs, overFullScale, scaledByDb, warning };
   }
 
   /* ---------- shared voices (BaseAudioContext) — the ONE voice set ---------- */
@@ -672,7 +752,9 @@ function midiHz(p: number): number {
   return 440 * Math.pow(2, (p - 69) / 12);
 }
 
-function wavBlob(buffer: AudioBuffer): Blob {
+/* 32-bit-float WAV encoder. `scale` is the ONLY difference between an as-is and
+   a normalized export, so the two paths cannot drift (E-006). */
+function encodeWav(buffer: AudioBuffer, scale: number): Blob {
   const numCh = buffer.numberOfChannels;
   const len = buffer.length;
   const bytes = 44 + len * numCh * 4;
@@ -699,11 +781,21 @@ function wavBlob(buffer: AudioBuffer): Blob {
   for (let c = 0; c < numCh; c++) chans.push(buffer.getChannelData(c));
   for (let i = 0; i < len; i++) {
     for (let c = 0; c < numCh; c++) {
-      view.setFloat32(off, chans[c][i], true);
+      view.setFloat32(off, chans[c][i] * scale, true);
       off += 4;
     }
   }
   return new Blob([ab], { type: "audio/wav" });
+}
+
+/** The un-guarded encoder — byte-identical to the pre-R-9 export path. */
+export function wavBlob(buffer: AudioBuffer): Blob {
+  return encodeWav(buffer, 1);
+}
+
+/** Apply one global linear gain and encode (R-9 normalize). */
+export function wavBlobScaled(buffer: AudioBuffer, factor: number): Blob {
+  return encodeWav(buffer, factor);
 }
 
 export const engine = new LuthierEngine();

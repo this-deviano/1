@@ -9,7 +9,7 @@
 
 import type { Song } from "./model";
 import { getState, undoStats } from "./store";
-import { engine, PREROLL_S } from "./engine";
+import { engine, PREROLL_S, wavBlob, EXPORT_TARGET_DBFS } from "./engine";
 import { getStatus } from "./status";
 import { cmdPersistHistory, cmdRestoreSnapshot, cmdToggleStep } from "./actions";
 import { selfTestDeterminismRuns } from "./selftest";
@@ -143,7 +143,9 @@ const api = {
       return { ok: true as const, probe: await probeWav(res.value) };
     },
   },
-  mic: () => ({ live: micCapture.live, sampleRate: micCapture.sampleRate }),
+  /** R-8c (TASK-050): `armedWindowMs` is the real capture-span from arming to the
+      last take, measured inside the capture (not inferred by the harness). */
+  mic: () => ({ live: micCapture.live, sampleRate: micCapture.sampleRate, armedWindowMs: micCapture.armedWindowMs }),
   /** Scripted edits — same command path the Lattice buttons use, no new authority. */
   edit: {
     toggleStep: (clipId: string, pitch: number, stepIdx: number) => cmdToggleStep(clipId, pitch, stepIdx),
@@ -154,13 +156,94 @@ const api = {
       reads through the SAME `readMedia` the harness already trusts. No new
       authority, and no write path anywhere near the model. */
   forensics: {
-    renderReference: async (expectedTrimMs: number = PREROLL_S * 1000) => {
+    renderReference: async (expectedTrimMs: number = PREROLL_S * 1000, opts?: { peakPolicy?: "as-is" | "normalize"; targetDbfs?: number }) => {
       try {
-        const blob = await engine.renderWav(getState().song);
-        const report = analyzeWav("reference-song-export", await blob.arrayBuffer(), { expectedTrimMs });
-        return { ok: true as const, report };
+        const result = await engine.renderWav(getState().song, 1.5, opts ?? {});
+        const report = analyzeWav("reference-song-export", await result.blob.arrayBuffer(), { expectedTrimMs });
+        return {
+          ok: true as const,
+          report,
+          guard: {
+            policy: result.policy,
+            targetDbfs: result.targetDbfs,
+            samplePeak: result.samplePeak,
+            measuredPeakDbfs: result.measuredPeakDbfs,
+            overFullScale: result.overFullScale,
+            scaledByDb: result.scaledByDb,
+            warning: result.warning,
+          },
+        };
       } catch (e) {
         return { ok: false as const, error: e instanceof Error ? e.message : "offline render failed" };
+      }
+    },
+    /** R-9 (TASK-051) — the peak guard measured end-to-end. Renders once per
+        policy, re-reads both files through the INDEPENDENT probeWav reader, and
+        proves the as-is path is structurally an identity transform by encoding
+        ONE buffer both ways (E-006 spirit: the proof cannot drift from the code
+        because it calls the code). */
+    peakGuard: async (targetDbfs: number = EXPORT_TARGET_DBFS) => {
+      try {
+        const song = getState().song;
+        const asIs = await engine.renderWav(song, 1.5, { peakPolicy: "as-is" });
+        const normalized = await engine.renderWav(song, 1.5, { peakPolicy: "normalize", targetDbfs });
+        const asIsProbe = await probeWav(await asIs.blob.arrayBuffer());
+        const normalizedProbe = await probeWav(await normalized.blob.arrayBuffer());
+        // structural identity: the SAME buffer through the guard's as-is branch
+        // and through the raw pre-guard encoder. One buffer ⇒ exact byte compare.
+        const buf = await engine.renderBuffer(song, 1.5);
+        const guardBytes = new Uint8Array(await engine.encodeWithPeakGuard(buf, { peakPolicy: "as-is" }).blob.arrayBuffer());
+        const directBytes = new Uint8Array(await wavBlob(buf).arrayBuffer());
+        let identical = guardBytes.length === directBytes.length;
+        if (identical) {
+          for (let i = 0; i < guardBytes.length; i++) {
+            if (guardBytes[i] !== directBytes[i]) {
+              identical = false;
+              break;
+            }
+          }
+        }
+        return {
+          ok: true as const,
+          asIs: {
+            samplePeak: asIs.samplePeak,
+            measuredPeakDbfs: asIs.measuredPeakDbfs,
+            overFullScale: asIs.overFullScale,
+            scaledByDb: asIs.scaledByDb,
+            warning: asIs.warning,
+            probe: asIsProbe,
+          },
+          normalize: {
+            targetDbfs,
+            scaledByDb: normalized.scaledByDb,
+            requestedFromPeak: normalized.samplePeak,
+            probe: normalizedProbe,
+          },
+          asIsIdentity: { identical, bytes: guardBytes.length, shaGuard: await sha256Hex(guardBytes), shaDirect: await sha256Hex(directBytes) },
+        };
+      } catch (e) {
+        return { ok: false as const, error: e instanceof Error ? e.message : "peak-guard render failed" };
+      }
+    },
+    /** R-9 evidence fixture seam: the as-is rendered WAV as base64, so the harness
+        can carve a committed excerpt of the exact clipping region (P-07: the
+        bytes on record are the bytes the guard would deliver untouched). */
+    asIsWavBase64: async () => {
+      try {
+        const res = await engine.renderWav(getState().song, 1.5, { peakPolicy: "as-is" });
+        const buf = new Uint8Array(await res.blob.arrayBuffer());
+        const parts: string[] = [];
+        for (let i = 0; i < buf.length; i += 0x8000) parts.push(String.fromCharCode(...buf.subarray(i, i + 0x8000)));
+        return {
+          ok: true as const,
+          base64: btoa(parts.join("")),
+          bytes: buf.length,
+          sha256: await sha256Hex(buf),
+          samplePeak: res.samplePeak,
+          measuredPeakDbfs: res.measuredPeakDbfs,
+        };
+      } catch (e) {
+        return { ok: false as const, error: e instanceof Error ? e.message : "as-is render failed" };
       }
     },
     media: async (sha: string, expectedTrimMs = 0) => {

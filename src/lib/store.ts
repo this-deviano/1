@@ -35,6 +35,11 @@ export interface StoreState {
   micArmed: boolean; // capture armed for the current record pass
   monitor: boolean; // input monitoring — DEFAULT OFF (TASK-007; headphone warning on enable)
   lastTake: { sha: string; bytes: number; durationS: number; peak: number } | null; // last recorded audio take (P-07)
+  /** R-9 (TASK-051): a rendered export whose SAMPLE peak exceeded 0 dBFS is held
+      here while the inline choice panel asks how to deliver it. Non-null means a
+      decision is pending; the buffer itself lives in actions.ts, never in React
+      state (it is megabytes, and nothing should re-render on it). */
+  exportPrompt: { samplePeak: number; peakDbfs: number } | null;
 }
 
 let listeners: (() => void)[] = [];
@@ -84,6 +89,7 @@ let state: StoreState = {
   micArmed: false,
   monitor: false,
   lastTake: null,
+  exportPrompt: null,
 };
 
 function makeEmptySong(): Song {

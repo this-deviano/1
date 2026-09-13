@@ -16,7 +16,8 @@ import {
   redo as storeRedo,
 } from "./store";
 import type { ClipPlacement } from "./store";
-import { engine } from "./engine";
+import { engine, wavBlob, wavBlobScaled, samplePeakOf, scaleFactorToTarget, EXPORT_TARGET_DBFS } from "./engine";
+import type { PeakPolicy } from "./engine";
 import { saveSong, loadSong, clearSong, crateClip, FACTORY_CRATE } from "./factory";
 import { cmdToggleCycle, cmdToggleMetronome, normalizeLegacySong } from "./store";
 import {
@@ -699,21 +700,63 @@ function performNewSong() {
   window.location.reload();
 }
 
+/* R-9 (TASK-051) — the export flow with the peak guard.
+   The mix is rendered ONCE. If its SAMPLE peak exceeds 0 dBFS, nothing is
+   delivered and nothing is silently fixed: an inline, non-modal choice panel
+   asks Export as-is / Scale to −1.0 dB / Scale to −0.3 dB (Esc cancels). The
+   rendered buffer waits in module scope — it is megabytes and must not live in
+   React state (P-04: no modal; P-15: no hidden gain move; P-07: the number the
+   panel prints is the sample peak, measured, not a true-peak estimate). */
+let pendingExport: { buffer: AudioBuffer; name: string; samplePeak: number } | null = null;
+
+function deliverWav(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${name.replace(/[^a-z0-9-_ ]/gi, "") || "song"}.wav`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
 export async function cmdExportMix() {
   const st = getState();
   toast("Rendering mix…", "ember");
   try {
-    const blob = await engine.renderWav(st.song);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${st.song.name.replace(/[^a-z0-9-_ ]/gi, "") || "song"}.wav`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    const buffer = await engine.renderBuffer(st.song, 1.5);
+    const samplePeak = samplePeakOf(buffer);
+    if (samplePeak > 1.0) {
+      pendingExport = { buffer, name: st.song.name, samplePeak };
+      setState({ exportPrompt: { samplePeak, peakDbfs: 20 * Math.log10(samplePeak) } });
+      toast("Export sample peak is over 0 dBFS — choose how to deliver it.", "signal");
+      return;
+    }
+    deliverWav(wavBlob(buffer), st.song.name);
     toast("Mix exported (WAV, 32-bit float).", "ok");
   } catch (e) {
     toast(`Render failed: ${e instanceof Error ? e.message : "unknown"}`, "signal");
   }
+}
+
+/** Deliver the pending hot export: as-is, or scaled to a target sample peak (R-9). */
+export function cmdExportChoice(policy: PeakPolicy, targetDbfs: number = EXPORT_TARGET_DBFS) {
+  if (!pendingExport) return;
+  const { buffer, name, samplePeak } = pendingExport;
+  pendingExport = null;
+  setState({ exportPrompt: null });
+  if (policy === "normalize") {
+    const factor = scaleFactorToTarget(samplePeak, targetDbfs);
+    deliverWav(wavBlobScaled(buffer, factor), name);
+    toast(`Mix exported — sample peak scaled to ${targetDbfs.toFixed(1)} dB (was +${(20 * Math.log10(samplePeak)).toFixed(2)} dB).`, "ok");
+  } else {
+    deliverWav(wavBlob(buffer), name);
+    toast("Mix exported as-is — sample peak is over 0 dBFS. It will clip on an integer DAC.", "ember");
+  }
+}
+
+/** Esc / Dismiss on the export choice panel — nothing is delivered. */
+export function cmdCancelExport() {
+  pendingExport = null;
+  setState({ exportPrompt: null });
 }
 
 export function cmdAddMarker() {

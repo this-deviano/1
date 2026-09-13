@@ -10,6 +10,8 @@ import {
   cmdCycle,
   cmdDetachCopy,
   cmdExportMix,
+  cmdExportChoice,
+  cmdCancelExport,
   cmdLoad,
   cmdMetronome,
   cmdNewClip,
@@ -44,6 +46,16 @@ export function buildCommands(): Cmd[] {
     { area: "app", name: "Load saved Song", run: cmdLoad },
     { area: "app", name: "New Song (reloads)", run: cmdNewSong },
     { area: "app", name: "Export mix (WAV)", run: () => void cmdExportMix() },
+    // R-9: the peak-guard choices are palette-reachable too, but only while a
+    // hot export is actually waiting — a command that can never run is a lie.
+    ...(getState().exportPrompt
+      ? [
+          { area: "export", name: "Export as-is (over 0 dBFS)", sc: "A", run: () => cmdExportChoice("as-is") },
+          { area: "export", name: "Scale sample peak to −1.0 dB", sc: "1", run: () => cmdExportChoice("normalize", -1.0) },
+          { area: "export", name: "Scale sample peak to −0.3 dB", sc: "3", run: () => cmdExportChoice("normalize", -0.3) },
+          { area: "export", name: "Cancel export", sc: "Esc", run: cmdCancelExport },
+        ]
+      : []),
     { area: "app", name: "Undo", sc: "Ctrl+Z", run: cmdUndo },
     { area: "app", name: "Redo", sc: "Ctrl+Shift+Z", run: cmdRedo },
     { area: "app", name: "Toggle theme Day/Night", run: cmdToggleTheme },
@@ -95,7 +107,9 @@ export function Palette({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const cmds = useMemo(buildCommands, []);
+  // Rebuilt per query so the R-9 export choices appear the moment a hot export
+  // is pending (the panel opens while the palette may already be mounted).
+  const cmds = useMemo(buildCommands, [q]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
