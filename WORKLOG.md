@@ -1,5 +1,80 @@
 # WORKLOG — append-only
 
+## SB-007-B — 2026-09-13 (adjunct — AUDIO FORENSICS; gate-free, FINDINGS)
+
+- START (announced at session open, recorded here): TASK-047 forensics module → TASK-048
+  harness integration + thresholds → TASK-049 bookkeeping + push. **No M2 code. `main`
+  untouched. `MILESTONE` untouched.** This session did NOT clear HV-DEFERRED-01 — it narrows
+  it: machines answer *"is it broken?"*, the maintainer keeps *"is it good?"* (AMM-004 §4).
+- WORKSPACE STATE AT START, verified read-only before anything else was touched (the standing
+  evidence-over-briefing rule — the briefing's claims were checked against git, not believed):
+  branch `ratify/m1-exit`, tip `4bbcabc`, **clean tree**. `git show ratify/m1-exit:MILESTONE`
+  → `M2`; `git show origin/main:MILESTONE` → `M1`; `origin/main` = `ff21132`;
+  `rev-list --left-right --count origin/main...ratify/m1-exit` = **0 ahead / 28 behind**, so
+  the branch fully contains main and the PR is conflict-free. Branch-local diff vs
+  `origin/chore/sb007-closeout` is docs-class only (`MERGE-PLAN.md`, `MILESTONE`, `TASKS.md`,
+  `docs/adr/INDEX.md`, `docs/amendments/AMM-004.md`) — no `src/`. All of this matches the
+  briefing and `MERGE-PLAN.md`; nothing in SB-007-B's §0–§4 was stale, and the referenced
+  seams it depends on (`engine.renderWav`, `pcmWavFloat32`, `readMedia`, the P-02 record
+  journey, `probeWav`) all exist — verified before any code was written.
+- E-011 channel check: the briefing arrived labelled `[AGENT PROMPT]`, which is what made it
+  agent-executable. No unlabelled maintainer-class command was present; none was executed.
+- Branch cut: `feat/audio-forensics` off `4bbcabc`.
+- Gates (E-009): `bun tsc -b --noEmit` **PASS** · `bun run build` **PASS** (pre-existing
+  dynamic-import chunk warnings only) · battery **13 passed / 1 failed (41.5 s)** — the new
+  TASK-048 spec is the failure, deliberately. **This session does not claim three green
+  gates.** The red is the deliverable, not an accident: SB-007-B §2 says any FAIL is a real
+  finding and forbids threshold-shopping it green (P-14).
+- Provenance note, stated plainly: written at close-out of a single-pass session; nothing here
+  was written after the fact to look tidier, and no earlier entry was rewritten.
+
+### §4 WHAT THE NUMBERS SAY (evidence `docs/evidence/sb007b/forensics.json`)
+
+**Reference-song export** (2 ch · 44.1 kHz · 32-bit float · 423,529 frames = 9.6038 s): true
+peak **1.208632230758667 = +1.65 dBFS**; **250 samples per channel strictly over full scale**;
+DC **1.2032e-4 = −78.39 dBFS**; lattice **5 outlier boundaries of 3,309**, max boundary delta
+0.06885 vs interior p99.9 0.05941; onset **55.99 ms** vs the engine's own 50 ms PREROLL →
+**+5.99 ms, inside ±50 ms (PASS)**. Peak/clip/DC reproduced across four runs to the last digit;
+the finding is stable, not a fluke.
+
+**Fake-tone take** (mono · 44.1 kHz): peak **exactly 1.0**, **0 samples strictly over**, onset
+**0.0 / 446.4 / 0.0 ms across three runs** — non-deterministic, and that non-determinism is
+itself the evidence for FND-04.
+
+The full findings — FND-01 (export over full scale: AUDIO), FND-02 (whole-file DC criterion
+invalid for non-stationary files), FND-03 (interior-p99.9 lattice criterion over-rejects by
+~3.3 expected-by-chance outliers, and is vacuous when the interior p99.9 is 0), FND-04 (the
+fake device cannot exercise the trim/level criteria) — are written out with their numbers,
+hypotheses and recommendations in `TASKS.md` under SB-007-B. Summary of the summary: **three of
+the four findings are the criteria being wrong, one is the audio being over full scale.**
+
+### Deliberate non-actions, disclosed
+
+- **Nothing was fixed.** FND-01's remedy is headroom/limiting/gain — parameter and feature
+  scope, forbidden by the briefing. FND-02/03 are criterion-definition changes, and editing a
+  criterion after watching it go red is exactly the threshold-shopping §2 forbids. Both are
+  filed for a ruling instead.
+- **The `docs/evidence/sb005/` files the battery regenerates were restored, not committed.**
+  A full battery run rewrites its own evidence (by design — TASK-035 requires numbers from the
+  current run), which moved `p-02-proxy.json` (3,384 → 5,152 ms) and the live/offline hashes
+  (`parity.json`'s max|Δ| reproduced exactly at 4.768e-7 = −126.4 dBFS). Those files are
+  SB-005's committed record and the rows that quote them (TASK-035, TASK-039) cite them by
+  session. Committing the regeneration would have broken ledger↔evidence correspondence for a
+  session that was not an SB-005 re-run, so they were reverted after the gate was verified.
+  The verification itself stands and is recorded here.
+- **Merge debt note.** This branch adds a 29th unmerged concern on top of a 28-commit PR. That
+  is the compounding the maintainer flagged; SB-007-B was framed as the last pre-merge session,
+  and this branch is the last one cut under that framing.
+
+### BLOCKED / limits, stated plainly
+
+- HV-DEFERRED-01 remains **open debt**. Nobody has heard this render, and this session did not
+  change that. What changed is that the machine half is now measured and instrumented, so the
+  maintainer's listening session is spent on judgement rather than on searching for a fault.
+- The take's trim and level criteria are **unmeasurable on the current instrument** (FND-04).
+  They cannot go green without a continuous, non-full-scale capture source; that is a fixture
+  change, filed, not made.
+
 ## SB-007-A — 2026-09-13 (adjunct — RATIFICATION PREP; branch-class only)
 - START (announced at session open, recorded here): TASK-044 salvage + kit staging →
   TASK-045 ratification branch (prepared, NOT executed) → TASK-046 maintainer menu + stop.
