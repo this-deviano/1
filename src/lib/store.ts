@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 import type { Clip, InstrumentId, Note, Placement, Song, Track } from "./model";
 import { engine } from "./engine";
 import { toast } from "../ui/primitives";
-import { MAX_UNDO_STEPS, SEED_DEFAULT, uid } from "./model";
+import { MAX_UNDO_BYTES, MAX_UNDO_STEPS, SEED_DEFAULT, uid } from "./model";
 
 export interface ClipPlacement extends Placement {
   clipObj: Clip;
@@ -24,7 +24,9 @@ export interface StoreState {
   cheat: boolean;
   coachStep: number;
   future: Song[]; // redo stack
-  past: Song[]; // undo stack
+  past: Song[]; // in-session undo stack (§10.2-capped, R-1(a))
+  pastSizes: number[]; // estimated serialized bytes per past entry (parallel array)
+  futureSizes: number[]; // estimated serialized bytes per future entry
   metronome: boolean; // persisted preference — NOT musical truth, not undoable, not in Song (SB-003 §4 ruling)
   metronomePrefError: string | null; // LR surface for pref-write failure (P-14)
   metronomeSource: "model" | "pref" | "session"; // provenance of the live metronome state
@@ -67,6 +69,8 @@ let state: StoreState = {
   coachStep: 0,
   future: [],
   past: [],
+  pastSizes: [],
+  futureSizes: [],
   metronome: loadMetronomePref(),
   metronomePrefError: null,
   metronomeSource: "pref",
@@ -99,19 +103,85 @@ function subscribe(l: () => void) {
   };
 }
 
+/* Estimated serialized size of one Song. JSON here is ASCII-dominated, so
+   character count is a serviceable byte estimate; the label stays "estimated"
+   (P-07). This is the number the §10.2 512 MB cap is measured against. */
+export function estimateSerializedBytes(song: Song): number {
+  try {
+    return JSON.stringify(song).length;
+  } catch {
+    return 0;
+  }
+}
+
+/* §10.2 in-session cap (R-1(a)): 10,000 entries OR 512 MB estimated serialized,
+   whichever comes first; FIFO eviction of the oldest entries. */
+function capStack(past: Song[], sizes: number[]): { past: Song[]; sizes: number[] } {
+  let bytes = sizes.reduce((a, b) => a + b, 0);
+  let drop = 0;
+  while (drop < past.length && (past.length - drop > MAX_UNDO_STEPS || bytes > MAX_UNDO_BYTES)) {
+    bytes -= sizes[drop] ?? 0;
+    drop += 1;
+  }
+  if (drop === 0) return { past, sizes };
+  return { past: past.slice(drop), sizes: sizes.slice(drop) };
+}
+
+function pushPast(past: Song[], sizes: number[], song: Song): { past: Song[]; sizes: number[] } {
+  return capStack([...past, song], [...sizes, estimateSerializedBytes(song)]);
+}
+
 /* Full-state undo (P-06). Cheap at Song sizes we support in the web MVP. */
 export function mutate(fn: (s: Song) => void, label?: string) {
   void label;
   const next = structuredClone(state.song);
   fn(next);
+  commitSong(next);
+}
+
+/* The one commit path for every Song replacement: the previous Song becomes an
+   undoable entry and the redo branch is discarded (standard undo semantics). */
+function commitSong(next: Song) {
+  const capped = pushPast(state.past, state.pastSizes, state.song);
   state = {
     ...state,
     song: next,
-    past: [...state.past.slice(-MAX_UNDO_STEPS + 1), state.song],
+    past: capped.past,
+    pastSizes: capped.sizes,
     future: [],
+    futureSizes: [],
     dirty: true,
   };
   emit();
+}
+
+/* Restore a Song from OUTSIDE the in-session edit path — Load, or a §11.6
+   Time Machine snapshot restore. R-1(c): restore PUSHES an undoable entry and
+   NEVER clears the stack; the pre-restore Song stays reachable under Ctrl+Z.
+   Cross-reload restore is snapshot-granular in the preview layer (R-1(b),
+   AMM-002-candidate); op-granularity within a session is the normative target. */
+export function restoreSong(song: Song) {
+  commitSong(song);
+}
+
+/* Boot-time hydration (TASK-006): compose the session from a restored Song plus
+   the Time Machine snapshot stack. Snapshot entries are APPENDED to whatever
+   the stack already holds — hydration never discards an existing stack (R-1(c)). */
+export function hydrateSession(song: Song, past: Song[]) {
+  const seeded = past.reduce((acc, s) => pushPast(acc.past, acc.sizes, s), { past: state.past, sizes: state.pastSizes });
+  const capped = pushPast(seeded.past, seeded.sizes, state.song);
+  state = { ...state, song, past: capped.past, pastSizes: capped.sizes, future: [], futureSizes: [], dirty: false };
+  emit();
+}
+
+/* Undo-stack telemetry (P-07 honest numbers; R-1(a) is verifiable from here). */
+export function undoStats(): { depth: number; bytes: number; cap: number; byteCap: number } {
+  return {
+    depth: state.past.length,
+    bytes: state.pastSizes.reduce((a, b) => a + b, 0),
+    cap: MAX_UNDO_STEPS,
+    byteCap: MAX_UNDO_BYTES,
+  };
 }
 
 export function undo(): boolean {
@@ -121,7 +191,9 @@ export function undo(): boolean {
     ...state,
     song: prev,
     past: state.past.slice(0, -1),
+    pastSizes: state.pastSizes.slice(0, -1),
     future: [state.song, ...state.future],
+    futureSizes: [estimateSerializedBytes(state.song), ...state.futureSizes],
     dirty: true,
   };
   emit();
@@ -131,11 +203,14 @@ export function undo(): boolean {
 export function redo(): boolean {
   if (state.future.length === 0) return false;
   const next = state.future[0];
+  const capped = pushPast(state.past, state.pastSizes, state.song);
   state = {
     ...state,
     song: next,
-    past: [...state.past, state.song],
+    past: capped.past,
+    pastSizes: capped.sizes,
     future: state.future.slice(1),
+    futureSizes: state.futureSizes.slice(1),
     dirty: true,
   };
   emit();

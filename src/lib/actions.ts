@@ -8,7 +8,9 @@ import {
   createClip,
   createTrack,
   getState,
+  hydrateSession,
   mutate,
+  restoreSong,
   setState,
   undo as storeUndo,
   redo as storeRedo,
@@ -531,10 +533,13 @@ export async function cmdLoad() {
   const loaded = fromOpfs.ok && fromOpfs.value ? fromOpfs.value : fromOpfs.ok ? loadSong() : null;
   if (loaded) {
     const song = normalizeLegacySong(loaded);
-    setState({ song, selectedPlacement: null, selectedTrack: song.tracks[0]?.id ?? null, dirty: false, past: [], future: [] });
+    // R-1(c): Load is a restore — it PUSHES an undoable entry (the pre-load
+    // Song stays reachable under Ctrl+Z). It never clears history.
+    restoreSong(song);
+    setState({ selectedPlacement: null, selectedTrack: song.tracks[0]?.id ?? null, dirty: false });
     engine.setSong(song);
     engine.cycle = song.cycle; // loaded Song carries the cycle field (TASK-013 ruling)
-    toast("Song loaded.", "ok");
+    toast("Song loaded — undo returns to your work.", "ok");
   } else {
     toast(fromOpfs.ok ? "No saved Song found." : `Load failed: ${fromOpfs.error}`, "signal");
   }
@@ -545,7 +550,7 @@ export async function cmdRestoreSession(): Promise<void> {
   const migration = await migrateFromLocalStorage();
   if (migration.ok && migration.value.song) {
     const song = normalizeLegacySong(migration.value.song);
-    setState({ song, dirty: false });
+    hydrateSession(song, []);
     engine.setSong(song);
     engine.cycle = song.cycle;
     syncEngineFromModel();
@@ -554,7 +559,7 @@ export async function cmdRestoreSession(): Promise<void> {
   const fromOpfs = await readSong();
   if (fromOpfs.ok && fromOpfs.value) {
     const song = normalizeLegacySong(fromOpfs.value);
-    setState({ song, dirty: false });
+    hydrateSession(song, []);
     engine.setSong(song);
     engine.cycle = song.cycle;
     syncEngineFromModel();
@@ -564,11 +569,31 @@ export async function cmdRestoreSession(): Promise<void> {
   if (hist.ok && hist.value) {
     const song = normalizeLegacySong(hist.value.song);
     const past = hist.value.past.map(normalizeLegacySong);
-    setState({ song, past, dirty: false }); // undo now survives reload (P-06)
+    // undo survives reload (P-06) and the snapshot stack is APPENDED, never
+    // substituted for, whatever is already on the in-session stack (R-1(c)).
+    hydrateSession(song, past);
     engine.setSong(song);
     engine.cycle = song.cycle;
     syncEngineFromModel();
   }
+}
+
+/* Time Machine restore (R-1(b)/(c)): restore snapshot N and PUSH the
+   pre-restore Song onto the undo stack — restore is a new history entry, never
+   destructive. index 0 is the newest snapshot (readHistory order). */
+export async function cmdRestoreSnapshot(index: number): Promise<{ ok: boolean; error?: string; snapshotCount: number }> {
+  const hist = await readHistory();
+  if (!hist.ok) return { ok: false, error: hist.error, snapshotCount: 0 };
+  if (!hist.value) return { ok: false, error: "No history snapshots stored.", snapshotCount: 0 };
+  const list = [hist.value.song, ...hist.value.past];
+  const target = list[index];
+  if (!target) return { ok: false, error: `Snapshot ${index} out of range (0..${list.length - 1}).`, snapshotCount: list.length };
+  const song = normalizeLegacySong(target);
+  restoreSong(song); // pushes the current Song onto the stack (R-1(c))
+  engine.setSong(song);
+  engine.cycle = song.cycle;
+  toast(`Restored snapshot ${index + 1} of ${list.length} — undo returns to your work.`, "ember");
+  return { ok: true, snapshotCount: list.length };
 }
 
 export function cmdNewSong() {

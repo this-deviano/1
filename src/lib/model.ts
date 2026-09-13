@@ -100,7 +100,12 @@ export const TPQ = 960;
 export const BAR = TPQ * 4;
 export const STEPS_PER_BAR = 16;
 export const STEP_TICKS = BAR / STEPS_PER_BAR;
-export const MAX_UNDO_STEPS = 200; // §10.2 caps at 10k; web build trims for memory
+/* §10.2 in-session undo caps (R-1(a), SB-004): 10,000 entries OR 512 MB
+   estimated serialized, whichever comes first, FIFO eviction. This governs the
+   IN-SESSION undo stack only — cross-reload history is the §11.6 autosave
+   snapshot store (opfs.ts, cap 100, Time Machine semantics) and is NOT this cap. */
+export const MAX_UNDO_STEPS = 10_000;
+export const MAX_UNDO_BYTES = 512 * 1024 * 1024;
 export const SEED_DEFAULT = 0x9e3779b9; // golden-ratio default seed (E-28)
 
 /* mulberry32 — tiny seeded PRNG for synthesis noise (E-28). Unseeded entropy
