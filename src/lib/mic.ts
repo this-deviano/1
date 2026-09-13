@@ -100,7 +100,8 @@ export class MicCapture {
       this.ctx = ctx;
       this.sampleRate = ctx.sampleRate;
       this.source = ctx.createMediaStreamSource(this.stream);
-      this.node = new AudioWorkletNode(ctx, WORKLET_NAME, { numberOfInputs: 1, numberOfOutputs: 0 });
+      // default 1-in/1-out shape; the output is simply left unconnected (a pure tap)
+      this.node = new AudioWorkletNode(ctx, WORKLET_NAME);
       this.node.port.onmessage = (ev: MessageEvent) => this.push(ev.data as Float32Array);
       // Capture tap only. The source is NOT connected to destination here —
       // monitoring is opt-in via monitor() (TASK-007: default OFF).
