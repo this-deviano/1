@@ -4,7 +4,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { EngineStatus } from "./engine";
-import { engine } from "./engine";
+import { selfTestRenderParity, selfTestDeterminism } from "./selftest";
 
 let status: EngineStatus = {
   running: false,
@@ -43,8 +43,8 @@ export function useStatus(): EngineStatus {
 
 export type SelfTestState = {
   running: boolean;
-  parity: { ok: boolean; maxAbsDiff: number; dbfs: number; liveHash: string; offlineHash: string; bitIdentical: boolean } | null;
-  determinism: { ok: boolean; hashA: string; hashB: string; bitIdentical: boolean } | null;
+  parity: import("./selftest").ParityResult | null;
+  determinism: import("./selftest").DeterminismResult | null;
   error: string | null;
 };
 
@@ -69,8 +69,8 @@ function setSelfTest(patch: Partial<SelfTestState>) {
 async function runBothSelfTests(): Promise<void> {
   setSelfTest({ running: true, error: null });
   try {
-    const parity = await engine.selfTestRenderParity();
-    const determinism = await engine.selfTestDeterminism();
+    const parity = await selfTestRenderParity();
+    const determinism = await selfTestDeterminism();
     setSelfTest({ running: false, parity, determinism });
     // eslint-disable-next-line no-console
     console.log(

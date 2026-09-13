@@ -6,7 +6,6 @@
 import type { Clip, Song, Track } from "./model";
 import { SEED_DEFAULT, TPQ } from "./model";
 import { seedStream, STREAM_TAGS } from "./seed";
-import { makeFactorySong } from "./factory";
 
 const LOOKAHEAD_S = 0.12;
 const TIMER_MS = 25;
@@ -19,8 +18,9 @@ const COMP_RATIO = 4;
 const COMP_ATTACK = 0.003;
 const COMP_RELEASE = 0.12;
 const MASTER_GAIN = 0.9;
-const PREROLL_S = 0.05; // offline voices start at t+PREROLL; live mapping uses the same offset via startCtxTime
 const EXPORT_SR = 44100;
+const PREROLL_S = 0.05; // offline voices start at t+PREROLL; live mapping uses the same offset via startCtxTime
+export { EXPORT_SR, PREROLL_S };
 
 export interface EngineStatus {
   running: boolean;
@@ -56,7 +56,7 @@ interface ScheduledEvent {
 class LuthierEngine {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
-  private comp: DynamicsCompressorNode | null = null;
+  comp: DynamicsCompressorNode | null = null;
   private analyser: AnalyserNode | null = null;
   private timer: number | null = null;
 
@@ -65,12 +65,21 @@ class LuthierEngine {
   metronome = false;
   cycle = false;
   startTick = 0;
-  private startCtxTime = 0;
+  startCtxTime = 0; // public: test seam for the parity guard's live leg (selftest.ts)
   private scheduledUntilTick = 0;
   song: Song | null = null;
   private tickAtLastSchedule = 0;
   private lastLoopWrap = 0;
   private rng: () => number = seedStream(SEED_DEFAULT, STREAM_TAGS.NOISE); // E-28/E-003: seeded synthesis noise
+
+  /* test seam (selftest.ts only): swap/restore the noise stream and read the
+     internal context nodes for the parity guard's live leg. */
+  rngForTest(): () => number {
+    return this.rng;
+  }
+  setTestRng(r: () => number) {
+    this.rng = r;
+  }
 
   // live capture (§17.4 spirit): last N recorded events
   capture: { pitch: number; vel: number; tick: number }[] = [];
@@ -104,7 +113,7 @@ class LuthierEngine {
 
   /* The ONE master graph builder — live (ensure), offline (renderBuffer) and
      the parity guard's live leg all construct their mix bus from this. */
-  private buildMasterGraph(ctx: BaseAudioContext): { comp: DynamicsCompressorNode; master: GainNode } {
+  buildMasterGraph(ctx: BaseAudioContext): { comp: DynamicsCompressorNode; master: GainNode } {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = COMP_THRESHOLD;
     comp.ratio.value = COMP_RATIO;
@@ -266,7 +275,7 @@ class LuthierEngine {
 
   /* materialEvents: the ONE model→event mapping. Deterministic, order-independent
      (stable sort on time, then track id, then pitch). Both schedulers consume this. */
-  private materialEvents(song: Song, from: number, to: number, secPerTick: number): ScheduledEvent[] {
+  materialEvents(song: Song, from: number, to: number, secPerTick: number): ScheduledEvent[] {
     const out: ScheduledEvent[] = [];
     const anySolo = song.tracks.some((t) => t.solo);
     const cycleOn = song.cycle && song.loop !== null; // TASK-013: cycle state is model truth
@@ -337,7 +346,7 @@ class LuthierEngine {
     }
   }
 
-  private effectiveClipLength(clip: Clip): number {
+  effectiveClipLength(clip: Clip): number {
     if (clip.pattern) return clip.pattern.length * (TPQ / 4) * 1;
     const maxTick = clip.notes.reduce((m, n) => Math.max(m, n.tick + n.len), 0);
     return Math.max(clip.length, maxTick);
@@ -396,7 +405,7 @@ class LuthierEngine {
      (both give the same preroll for a play from 0 — the guard measures the
      residual envelope-attack difference, not a musical one). */
 
-  private async renderBuffer(song: Song, tailSeconds: number): Promise<AudioBuffer> {
+  async renderBuffer(song: Song, tailSeconds: number): Promise<AudioBuffer> {
     const lenTicks = song.placements.reduce((m, p) => {
       const clip = song.clips.find((c) => c.id === p.clip);
       if (!clip) return m;
@@ -423,90 +432,9 @@ class LuthierEngine {
     return wavBlob(buf);
   }
 
-  /* ---------- parity guard (SB-003 §4; ships with the renderer unification) ----------
-     Dev self-test: render the reference song through BOTH schedulers —
-     live look-ahead (into an OfflineAudioContext) and offline fast-forward
-     (renderBuffer) — then compare. Requires |max abs diff| ≤ −96 dBFS or
-     bit-identical. Failure = red inline panel via App render (P-14). */
-
-  async selfTestRenderParity(): Promise<{
-    ok: boolean;
-    maxAbsDiff: number;
-    dbfs: number; // maxAbsDiff in dBFS (−Infinity when bit-identical)
-    samples: number;
-    liveHash: string;
-    offlineHash: string;
-    bitIdentical: boolean;
-  }> {
-    const song = this.song ?? makeFactorySong();
-    const sr = EXPORT_SR;
-    const secPerTick = 60 / song.qpm / TPQ;
-    const tail = 1.5;
-    const lenTicks = song.placements.reduce((m, p) => {
-      const clip = song.clips.find((c) => c.id === p.clip);
-      if (!clip) return m;
-      return Math.max(m, p.start + this.effectiveClipLength(clip));
-    }, song.cycle && song.loop ? song.loop.end : 0);
-    const total = Math.max(1, lenTicks * secPerTick + tail);
-
-    // leg 1 — LIVE scheduler semantics: transport math (startCtxTime, clamps,
-    // per-window fire) on an OfflineAudioContext, via the same materialEvents.
-    const ctxLive = new OfflineAudioContext(2, Math.ceil(total * sr), sr);
-    const savedCtx = this.ctx;
-    const savedComp = this.comp;
-    const savedRng = this.rng;
-    const { comp: compL } = this.buildMasterGraph(ctxLive);
-    compL.connect(ctxLive.destination);
-    this.ctx = ctxLive as unknown as AudioContext;
-    this.comp = compL;
-    this.rng = seedStream(song.seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE);
-    this.startTick = 0;
-    this.startCtxTime = PREROLL_S;
-    const liveEvents = this.materialEvents(song, 0, lenTicks, secPerTick);
-    for (const ev of liveEvents) {
-      const t = this.startCtxTime + (ev.time - this.startTick * secPerTick);
-      this.fireVoice({ ...ev, time: t }, ctxLive, compL); // no clamp — offline leg starts at t=0
-    }
-    this.ctx = savedCtx;
-    this.comp = savedComp;
-    this.rng = savedRng;
-    const bufLive = await ctxLive.startRendering();
-
-    // leg 2 — OFFLINE fast-forward (production export path, unchanged)
-    const bufOffline = await this.renderBuffer(song, tail);
-
-    const live = bufLive.getChannelData(0);
-    const offline = bufOffline.getChannelData(0);
-    const n = Math.min(live.length, offline.length);
-    let maxDiff = 0;
-    let bitIdentical = true;
-    for (let i = 0; i < n; i++) {
-      const d = Math.abs(live[i] - offline[i]);
-      if (d > maxDiff) maxDiff = d;
-      if (d !== 0) bitIdentical = false;
-    }
-    // lengths must match too (same Song, same tail) — include trailing samples if not
-    if (live.length !== offline.length) bitIdentical = false;
-    const dbfs = bitIdentical ? Number.NEGATIVE_INFINITY : 20 * Math.log10(Math.max(maxDiff, 1e-12));
-    const liveHash = await digestBuffer(bufLive);
-    const offlineHash = await digestBuffer(bufOffline);
-    return { ok: bitIdentical || maxDiff <= 1e-4, maxAbsDiff: maxDiff, dbfs, samples: n, liveHash, offlineHash, bitIdentical };
-  }
-
-  /* ---------- TASK-017: determinism self-test (same-scope double render) ---------- */
-
-  async selfTestDeterminism(): Promise<{ ok: boolean; hashA: string; hashB: string; bitIdentical: boolean }> {
-    const song = this.song ?? makeFactorySong();
-    const a = await this.renderBuffer(song, 1.5);
-    const b = await this.renderBuffer(song, 1.5);
-    const hashA = await digestBuffer(a);
-    const hashB = await digestBuffer(b);
-    return { ok: hashA === hashB, hashA, hashB, bitIdentical: hashA === hashB };
-  }
-
   /* ---------- shared voices (BaseAudioContext) — the ONE voice set ---------- */
 
-  private fireVoice(n: ScheduledEvent, ctxOverride?: BaseAudioContext, destOverride?: AudioNode) {
+  fireVoice(n: ScheduledEvent, ctxOverride?: BaseAudioContext, destOverride?: AudioNode) {
     const ctx = (ctxOverride ?? this.ctx)!;
     const track = n.track;
     const gain = dbToGain(track.gain) * (n.vel / 127) * dbToGain(n.gainDb); // track strip × velocity × placement override (P-15: no hidden moves)
@@ -642,15 +570,6 @@ class LuthierEngine {
 
 function dbToGain(db: number): number {
   return Math.pow(10, db / 20);
-}
-
-async function digestBuffer(buf: AudioBuffer): Promise<string> {
-  const data = buf.getChannelData(0);
-  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function midiHz(p: number): number {
