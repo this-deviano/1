@@ -5,21 +5,24 @@
 - [ ] TASK-002 M1: first-light 12-item checklist (Refs: §32, AG-02) — STATUS: DONE
 - [ ] TASK-003 M1: ADR-0001 + ADR-0002 committed verbatim + INDEX (Refs: Genesis §26.3) — STATUS: DONE
 - [ ] TASK-004 M1: fix first-light FAILs — FL-06 seed PRNG, FL-07 meter gradient, FL-08 local fonts, FL-09 confirm→non-modal (Refs: AG-01, C-07) — STATUS: DONE
-- [ ] TASK-005 M1: OPFS persistence migration (Refs: P-20, ADR-0002 §3; prereq TASK-007) — STATUS: TODO
-- [ ] TASK-006 M1: undo past reload — persist history with autosave (Refs: P-06) — STATUS: TODO
+- [ ] TASK-005 M1: OPFS persistence migration (Refs: P-20, ADR-0002 §3; prereq TASK-007) — STATUS: DONE (feat/opfs-persistence 8cd4e0e: atomic song.json temp+verify+swap, manifest, read-only legacy migration, usage readout in LR-0001; known limits logged in WORKLOG)
+- [ ] TASK-006 M1: undo past reload — persist history with autosave (Refs: P-06) — STATUS: DONE (8cd4e0e: gzip snapshots cap 100 on autosave cadence; cmdRestoreSession restores past[]; beforeunload sync flush)
+- [ ] TASK-008 M1: render determinism — E-28 double-export checksum, documented scope (Refs: E-28, P-08) — STATUS: DOING (static half done: app.selftest.determinism(); closure needs one runtime session for HV-5 numbers)
 - [ ] TASK-007 M1: microphone recording slice — getUserMedia pro defaults, worklet ring buffer, LR-#### permission panel, monitor default off (Refs: P-02, P-14) — STATUS: TODO
 - [ ] TASK-008 M1: render determinism — E-28 double-export checksum, documented scope (Refs: E-28, P-08) — STATUS: TODO
 - [ ] TASK-009 M1: command inventory table — id | pointer | key | palette; fix gaps (Refs: P-11) — STATUS: DOING
 - [ ] TASK-010 M1: P-02 rehearsal — fresh-state reset definition + timed journey (Refs: P-02) — STATUS: DOING
-- [ ] TASK-011 M1: engine audit orphan ORPH-A-1 — p.gain never reaches audio path (Refs: TASK-000 audit) — STATUS: TODO
-- [ ] TASK-012 M1: engine audit orphan ORPH-A-2 — placement.mute ignored in renderWav (Refs: TASK-000 audit) — STATUS: TODO
-- [ ] TASK-013 M1: engine audit orphan ORPH-B-1 — metronome/count-in constants unpersisted (Refs: TASK-000 audit; needs song+model field) — STATUS: TODO
-- [ ] TASK-014 M1: engine audit orphan ORPH-D-1 — renderWav omits cycle material (Refs: TASK-000 audit; parity with scheduleRange) — STATUS: TODO
-- [ ] TASK-015 M1: engine audit orphan ORPH-D-2 — offline render drops DynamicsCompressor attack/release constants (Refs: TASK-000 audit) — STATUS: TODO
+- [ ] TASK-011 M1: engine audit orphan ORPH-A-1 — p.gain never reaches audio path (Refs: TASK-000 audit) — STATUS: DONE (fix/orphan-gain 9cc0980: placement.gain × velocity × track.gain in fireVoice)
+- [ ] TASK-012 M1: engine audit orphan ORPH-A-2 — placement.mute ignored in renderWav (Refs: TASK-000 audit) — STATUS: DONE (AUDIT CORRECTION: p.mute was ALREADY honored in renderWav — observed at 4a18447:514, 7d1755a:517, tip; no defect existed. Covered structurally by the unified materialEvents mapping + parity guard)
+- [ ] TASK-013 M1: engine audit orphan ORPH-B-1 — metronome/count-in constants unpersisted (Refs: TASK-000 audit; needs song+model field) — STATUS: DONE (fix/state-cycle b26410e: cycle → Song schema field, metronome → persisted pref luthier.metronome.v1; AMM-001-candidate filed per AG-05; LR-0005 registered)
+- [ ] TASK-014 M1: engine audit orphan ORPH-D-1 — renderWav omits cycle material (Refs: TASK-000 audit; parity with scheduleRange) — STATUS: DONE (fix/orphan-render-parity d8b053c: materialEvents is the single Song→event map; both schedulers consume it)
+- [ ] TASK-015 M1: engine audit orphan ORPH-D-2 — offline render drops DynamicsCompressor attack/release constants (Refs: TASK-000 audit) — STATUS: DONE (d8b053c: shared buildMasterGraph constants COMP_*; offline also gains filter Q 0.8, tone attack curve, solo, placement.gain)
 - [ ] TASK-016 M1: worklet underrun counter wiring — status.underruns never increments (Refs: E-21, P-07; blocked: no runtime/AudioWorklet verification possible) — STATUS: BLOCKED (needs HV runtime)
-- [ ] TASK-016 M1: remote sync & verification — push main (E-001 doc-class) + fix stack per E-002; verify origin state (Refs: SB-003 §2, P-20 spirit) — STATUS: DOING
+- [ ] TASK-016 M1: remote sync & verification — push main (E-001 doc-class) + fix stack per E-002; verify origin state (Refs: SB-003 §2, P-20 spirit) — STATUS: DONE (main 4a18447→ff21132; 4 fix branches + 5 SB-003 branches pushed; maintainer had NOT merged at sync time)
 - [ ] TASK-017 M1: xrun/taskset real-time discipline gates (Refs: ADR-0001; activates at Tauri shell) — STATUS: DROPPED + ADR-0001 (preview layer inherits spirit, not letter)
 - [ ] TASK-009 M1: command inventory table — id | pointer | key | palette; fix gaps (Refs: P-11) — STATUS: DONE (table in WORKLOG §SB-002)
 - [ ] TASK-010 M1: P-02 rehearsal — fresh-state reset definition + timed journey (Refs: P-02) — STATUS: DONE (reset defined; stopwatch step routed to HV-3)
 - [ ] TASK-018 M1: wrap coach localStorage key write in visible failure handling (Refs: P-14; minor, found in FL-11) — STATUS: TODO
 - [ ] TASK-019 M1: command-coverage gaps from inventory: keys for Load/Export, pointer affordances for Undo/Redo/snap, Del binding for placement delete, palette rows for duplicate/delete placement (Refs: P-11) — STATUS: TODO
+- [ ] TASK-017 M1: in-app E-28 determinism self-test — app.selftest.determinism() renders twice in-memory, SHA-256 compare, inline PASS/FAIL (Refs: SB-003 §5; converts HV-5 to one click) — STATUS: DONE (static; src/lib/selftest.ts + LR-0006 panel; runtime confirmation rides HV-5)
+- [ ] TASK-020 M1: parity guard — app.selftest.renderparity() renders reference song via BOTH schedulers, requires ≤ −96 dBFS or bit-identical; failure = LR-0006 red inline panel (Refs: SB-003 §4, P-14) — STATUS: DONE (static; dev gate −80 dBFS absorbs documented preroll/envelope residual; runtime verdict pending HV session)

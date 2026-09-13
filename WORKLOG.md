@@ -5,6 +5,44 @@
 - WORKSPACE STATE AT START: branch fix/inline-confirm (stack tip), clean tree, all 5 heads present (ff21132 + 7d1755a/fd3f8be/f3cc603/26ad378). No reset; nothing lost.
 - GATES (re-run by me on stack tip before any push): bun tsc -b --noEmit clean; bun run build green (pre-existing chunk warnings only).
 
+### TASK-016 — remote sync result
+- `origin/main..main` listed ONLY ff21132 (E-001 doc-class) → pushed per §2. Fix stack was NOT merged by maintainer (origin/main was 4a18447); pushed all four fix branches.
+- On origin now: main@ff21132, fix/seeded-noise, fix/meter-gradient, fix/local-fonts, fix/inline-confirm, then SB-003 work: fix/orphan-gain@9cc0980, fix/seed-streams@abddf5e, fix/state-cycle@b26410e, fix/orphan-render-parity@5c3e00c, feat/opfs-persistence@8cd4e0e.
+- FL greps on main: FL-06/07/08 not applicable to docs-only main (fixes live on the stack, unmerged); FL-09 `window.confirm` absent from main (it was introduced and fixed on the stack); no official maintainer verdicts possible — stack awaits merge.
+- DISCLOSED PROCESS NOTE: the WORKLOG-start commit (3a78b7d, docs-only) landed on fix/inline-confirm, the checked-out stack tip, not on main. docs/GENESIS.md itself is untouched and uncommitted-upon. Maintainer may cherry-pick it when merging.
+- NO LOSS: nothing was reconstructed; every pre-existing commit is on origin.
+
+### E-002 log (standing)
+All code work this session on fix/* or feat/* branches, pushed immediately after gates passed. Main untouched (AG-12). Zero force-pushes.
+
+### E-003 verification (seed rule vs 7d1755a)
+1. seed persisted, generated once: PASS — `song.seed` in schema (model.ts), set only at creation (factory.ts / store.ts), never regenerated on load/save/export (factory loadSong backfills legacy songs only).
+2. INDEPENDENT streams: FAIL as merged on 7d1755a — ONE shared sequential `mulberry32(seed)` stream (`this.rng`); sequence depended on voice call order; live and offline orders diverge. FIXED on fix/seed-streams (abddf5e): per-source derivation `mulberry32(splitmix32(seed ^ fnv1a(tag)))`, tags are SOURCES not paths (luthier/noise), so live/offline noise sequences are identical by construction — which is exactly what the parity guard requires.
+3. No Math.random/getRandomValues in synthesis: PASS — repo grep clean (E-28 gate).
+
+### §4 orphan triage results
+- GAIN (TASK-011): REAL. pushNote carried `p.gain` but dropped it (`_gainDb`). Fixed both paths; offline gets it via the unified mapping. 9cc0980.
+- MUTE (TASK-012): AUDIT CORRECTION — `renderWav` already skipped `p.mute` (observed at 4a18447 line 514, 7d1755a line 517, and tip). No defect; ledger row corrected in TASKS.md.
+- PARITY (TASK-014/015 + C-2): structural fix landed — materialEvents() single mapping + two schedulers, shared BaseAudioContext voices, shared COMP_*/MASTER_GAIN constants, deleted renderDrum/renderTone/renderBlip/staticNoise duplicates. Offline additionally gained filter Q 0.8, tone attack curve, solo handling, placement.gain. d8b053c + 7093302.
+- PARITY GUARD: shipped — app.selftest.renderparity() (dev gate −80 dBFS to absorb the documented preroll/envelope residual; constitution floor −96 dBFS stated in code); failure = LR-0006 red inline panel (P-14). Runtime verdict pending HV session — NOT claimed green.
+- STATE ORPHAN (TASK-013): ruling applied — cycle → Song field (schema-additive, legacy-normalized, undoable), metronome → persisted pref (session-state, not undoable); AMM-001-candidate filed per AG-05. b26410e.
+- NOISE orphan: closed pending merge — E-003 verification above; final closure after maintainer merges the stack.
+
+### AG-01 notes
+- d8b053c committed at 480 engine changed lines (480+252/228 churn, single concern) — over the 400 ceiling; remediated before push by splitting the self-test harness into src/lib/selftest.ts (7093302). The over-budget commit exists in branch history (never pushed at that size); the pushed stack is compliant. Logged, not hidden.
+- feat/opfs-persistence 8cd4e0e: 328 changed lines, within budget.
+
+### TASK-005 / TASK-006 (feat/opfs-persistence)
+- Boxes ticked: atomic song.json (temp + read-back verify + move-or-fallback swap) · manifest.json (history + media index) · gzip history cap 100 · one-time read-only legacy migration (key preserved as backup) · usage readout in LR-0001 · undo-past-reload via cmdRestoreSession · beforeunload sync flush.
+- HONEST LIMITS: OPFS writes are async — the unload flush is the synchronous legacy mirror (OPFS write may not complete on close); restore race window exists if the user edits within milliseconds of boot; `move()`-unsupported browsers use the in-place fallback (temp remains as backup); quota failures in history snapshots log to console with song.json as the durable copy.
+- TASK-007 (mic) NOT started: per §0 the renderer-truth work preceded it, and the capture slice requires runtime verification the sandbox cannot provide; moving to SB-004 head of queue rather than landing unverified audio input code (AG-06, truth discipline).
+
+### §7 font licenses
+done — public/fonts/OFL-Fraunces.txt, OFL-SchibstedGrotesk.txt, OFL-SplineSansMono.txt (verbatim upstream texts; E-001 docs commit 5c3e00c).
+
+### BLOCKED (unchanged)
+- Runtime verification (HV-1..6, HV-5 checksum, live parity-guard verdict, P-02 number): no browser/mic in this sandbox. freebuff-preview runtime not exercised this session; nothing in SB-003 required it (per briefing §1).
+
 ## SB-002 — 2026-09-12
 - START: first-light verification + constitutional bootstrap; no new features.
 - AG-07 CHECK: original root commit ancestor: yes — root `74ee3eb` ("Initial commit") is an ancestor of HEAD `4a18447`; history linear (2 commits total), no rewrite detected. Never will be rewritten.
