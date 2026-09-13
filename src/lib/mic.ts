@@ -58,6 +58,22 @@ export class MicCapture {
   private samplesHeld = 0;
   private peak = 0;
   sampleRate = 48000;
+  /* R-8c (TASK-050): the armed WALL-CLOCK window, measured at the capture source.
+     The fake device cannot express an onset (FND-04), so the take's duration is
+     judged against the real span from arming to the take, not against an
+     inferred position. Measured here, where the capture actually starts and
+     stops, so the criterion cannot drift from the code it tests. */
+  private armedAtMs = 0;
+  private takeAtMs = 0;
+
+  /** Wall-clock ms from `reset()` (armed) to the last `take()`; 0 before either. */
+  get armedWindowMs(): number {
+    return this.takeAtMs > this.armedAtMs ? this.takeAtMs - this.armedAtMs : 0;
+  }
+
+  get armedAtMsValue(): number {
+    return this.armedAtMs;
+  }
   /** True once open() has a live MediaStream (the recording indicator is on). */
   get live(): boolean {
     return this.stream !== null;
@@ -133,6 +149,8 @@ export class MicCapture {
     this.chunks = [];
     this.samplesHeld = 0;
     this.peak = 0;
+    this.armedAtMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+    this.takeAtMs = 0;
   }
 
   take(): MicTake {
@@ -142,6 +160,7 @@ export class MicCapture {
       out.set(c, off);
       off += c.length;
     }
+    this.takeAtMs = typeof performance !== "undefined" ? performance.now() : Date.now();
     return { samples: out, peak: this.peak, durationS: this.samplesHeld / this.sampleRate };
   }
 
