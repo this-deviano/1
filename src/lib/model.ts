@@ -26,6 +26,18 @@ export interface LatticeRow {
   mute: boolean;
 }
 
+/* Recorded-audio material (TASK-007). The bytes live in OPFS as
+   media/<sha>.wav — content-addressed, so identical takes deduplicate and the
+   clip carries only a pointer (ADR-0002 rule 3). Additive, optional; synthesis
+   clips have no media and legacy Songs simply never had an audio clip. */
+export interface ClipMedia {
+  sha: string; // sha256 of the WAV bytes — the content address
+  bytes: number; // encoded WAV size
+  durationS: number; // recorded material, count-in excluded (P-07)
+  sampleRate: number;
+  channels: number;
+}
+
 export interface Clip {
   id: string;
   kind: ClipKind;
@@ -34,6 +46,7 @@ export interface Clip {
   color: string;
   notes: Note[]; // midi material
   pattern: { length: number; rows: LatticeRow[] } | null; // pattern material
+  media?: ClipMedia | null; // recorded audio pointer (additive — see schema-changelog)
 }
 
 export interface Placement {

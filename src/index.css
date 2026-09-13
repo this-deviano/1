@@ -1264,6 +1264,12 @@ ol {
   font-size: 12px;
 }
 
+/* Mic surface (TASK-007) — inline, non-modal, same panel language as .inline-error */
+.mic-panel {
+  font: var(--grain-type-small);
+  color: var(--grain-ink-88);
+}
+
 /* Splash (§6.11.1) */
 .splash {
   position: fixed;

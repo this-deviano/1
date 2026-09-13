@@ -31,6 +31,10 @@ export interface StoreState {
   metronome: boolean; // persisted preference — NOT musical truth, not undoable, not in Song (SB-003 §4 ruling)
   metronomePrefError: string | null; // LR surface for pref-write failure (P-14)
   metronomeSource: "model" | "pref" | "session"; // provenance of the live metronome state
+  micError: string | null; // LR-0007/0008 inline surface, never a modal (P-14)
+  micArmed: boolean; // capture armed for the current record pass
+  monitor: boolean; // input monitoring — DEFAULT OFF (TASK-007; headphone warning on enable)
+  lastTake: { sha: string; bytes: number; durationS: number; peak: number } | null; // last recorded audio take (P-07)
 }
 
 let listeners: (() => void)[] = [];
@@ -76,6 +80,10 @@ let state: StoreState = {
   metronome: loadMetronomePref(),
   metronomePrefError: null,
   metronomeSource: "pref",
+  micError: null,
+  micArmed: false,
+  monitor: false,
+  lastTake: null,
 };
 
 function makeEmptySong(): Song {

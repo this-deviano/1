@@ -19,7 +19,18 @@ import type { ClipPlacement } from "./store";
 import { engine } from "./engine";
 import { saveSong, loadSong, clearSong, crateClip, FACTORY_CRATE } from "./factory";
 import { cmdToggleCycle, cmdToggleMetronome, normalizeLegacySong } from "./store";
-import { writeSong, readSong, readHistory, writeHistorySnapshot, migrateFromLocalStorage, usageEstimate, opfsAvailable } from "./opfs";
+import {
+  writeSong,
+  readSong,
+  readHistory,
+  writeHistorySnapshot,
+  migrateFromLocalStorage,
+  usageEstimate,
+  opfsAvailable,
+  writeMedia,
+  sha256Hex,
+} from "./opfs";
+import { micCapture, pcmWavFloat32 } from "./mic";
 import { toast } from "../ui/primitives";
 
 /* ---------- transport ---------- */
@@ -28,19 +39,62 @@ export async function cmdPlayStop() {
   await engine.togglePlay();
 }
 
+/* Record pass (TASK-007 extends TASK-002). An armed AUDIO track turns on
+   microphone capture; an armed MIDI track keeps the existing performance
+   capture. Both can run in the same pass. Stopping lands the takes (cmdFinishTake). */
 export async function cmdRecord() {
   if (engine.recording) {
     engine.stop();
     return;
   }
   const st = getState();
-  const armed = st.song.tracks.filter((t) => t.arm && t.kind === "midi");
-  if (armed.length === 0) {
-    toast("Arm a MIDI track first — click the circle on its header.", "signal");
+  const armedAudio = st.song.tracks.filter((t) => t.arm && t.kind === "audio");
+  const armedMidi = st.song.tracks.filter((t) => t.arm && t.kind === "midi");
+  if (armedAudio.length === 0 && armedMidi.length === 0) {
+    toast("Arm a track first — click the circle on its header.", "signal");
     return;
   }
+
+  if (armedAudio.length > 0) {
+    const opened = await micCapture.open();
+    if (!opened.ok) {
+      setState({ micError: opened.error ?? "LR-0007: microphone unavailable.", micArmed: false });
+      if (armedMidi.length === 0) return; // nothing else to capture — the panel carries the retry
+      toast("Recording MIDI only — microphone unavailable (LR-0007).", "signal");
+    } else {
+      const ctx = await engine.ensure();
+      const attached = await micCapture.attach(ctx);
+      if (!attached.ok) {
+        setState({ micError: attached.error ?? "LR-0007: capture graph failed.", micArmed: false });
+      } else {
+        micCapture.reset();
+        micCapture.monitor(getState().monitor);
+        setState({ micError: null, micArmed: true });
+      }
+    }
+  }
+
   await engine.record();
-  toast("Recording — 4-beat count-in, then play. Space stops.", "ok");
+  const parts = [armedMidi.length ? `${armedMidi.length} MIDI` : "", armedAudio.length ? `${armedAudio.length} audio` : ""]
+    .filter(Boolean)
+    .join(" + ");
+  toast(`Recording ${parts} — 4-beat count-in, then play. Space stops.`, "ok");
+}
+
+/* Input monitoring is opt-in and warns about feedback on enable (TASK-007). */
+export function cmdToggleMonitor(): void {
+  const next = !getState().monitor;
+  setState({ monitor: next });
+  micCapture.monitor(next);
+  toast(
+    next ? "Input monitoring ON — use headphones; speakers will feed back." : "Input monitoring OFF.",
+    next ? "signal" : "ember"
+  );
+}
+
+/** Clear an LR-0007/0008 panel (retry is a fresh cmdRecord). */
+export function cmdDismissMicError(): void {
+  setState({ micError: null });
 }
 
 export function cmdReturnZero() {
@@ -639,6 +693,7 @@ function performNewSong() {
         await dir.removeEntry(name).catch(() => undefined);
       }
       await dir.removeEntry("history", { recursive: true }).catch(() => undefined);
+      await dir.removeEntry("media", { recursive: true }).catch(() => undefined);
     })();
   }
   window.location.reload();
@@ -709,6 +764,62 @@ export function cmdFlushTake() {
     s.placements.push({ id: uid("plc"), clip: clip.id, track: track.id, start, gain: 0, transpose: 0, mute: false });
   });
   toast(`Take captured — ${notes.length} note${notes.length === 1 ? "" : "s"} on ${track.name}.`, "ok");
+}
+
+/* Stop → take for the AUDIO path (TASK-007): the captured samples become a
+   content-addressed WAV in OPFS media/, and a clip on the armed audio track
+   points at it. Failures surface as LR-0007/LR-0008 and the device is always
+   released — the tab's recording indicator must never stay lit (P-14). */
+export async function cmdFinishTake(): Promise<void> {
+  cmdFlushTake(); // MIDI performance capture (unchanged path)
+  const took = micCapture.take();
+  const wasArmed = getState().micArmed;
+  micCapture.close();
+  if (!wasArmed && took.samples.length === 0) return;
+  setState({ micArmed: false, monitor: false });
+  if (took.samples.length === 0) return;
+
+  const st = getState();
+  const track = st.song.tracks.find((t) => t.arm && t.kind === "audio") ?? st.song.tracks.find((t) => t.kind === "audio");
+  if (!track) {
+    setState({ micError: "LR-0007: the recorded take had no audio track to land on." });
+    return;
+  }
+  const bytes = pcmWavFloat32(took.samples, micCapture.sampleRate);
+  const sha = await sha256Hex(bytes);
+  const written = await writeMedia(bytes, sha);
+  if (!written.ok) {
+    const id = written.kind === "quota" ? "LR-0008" : "LR-0007";
+    setState({ micError: `${id}: recorded audio could not be stored — ${written.error}` });
+    return;
+  }
+
+  // ticks are derived from the model's tempo, so the clip length is musical truth
+  const ticks = Math.max(STEP_TICKS, Math.round(took.durationS * (st.song.qpm / 60) * TPQ));
+  const takeNo = st.song.clips.filter((c) => c.kind === "audio").length + 1;
+  const clip: Clip = {
+    id: uid("clp"),
+    kind: "audio",
+    name: `Audio Take ${takeNo}`,
+    length: ticks,
+    color: track.color,
+    notes: [],
+    pattern: null,
+    media: { sha, bytes: written.value.bytes, durationS: took.durationS, sampleRate: micCapture.sampleRate, channels: 1 },
+  };
+  const start = snapToStep(engine.startTick);
+  mutate((s) => {
+    s.clips.push(clip);
+    s.placements.push({ id: uid("plc"), clip: clip.id, track: track.id, start, gain: 0, transpose: 0, mute: false });
+  });
+  setState({
+    micError: null,
+    lastTake: { sha, bytes: written.value.bytes, durationS: took.durationS, peak: took.peak },
+  });
+  toast(
+    `Audio take captured — ${took.durationS.toFixed(2)} s, peak ${took.peak.toFixed(3)} → media/${sha.slice(0, 12)}….`,
+    "ok"
+  );
 }
 
 /* ---------- undo / redo (P-06) ---------- */

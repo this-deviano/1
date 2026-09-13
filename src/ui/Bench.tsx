@@ -9,7 +9,7 @@ import { engine } from "../lib/engine";
 import { pushStatus } from "../lib/status";
 import type { Song } from "../lib/model";
 import { ticksToBarBeat, ticksToMinSec } from "../lib/model";
-import { cmdAddCrateClip, cmdFlushTake, cmdPersistHistory, cmdRestoreSession } from "../lib/actions";
+import { cmdAddCrateClip, cmdFinishTake, cmdPersistHistory, cmdRestoreSession } from "../lib/actions";
 import { cmdLaunchBench } from "../lib/launch";
 
 /* musical typing map — semitone offset from C3 */
@@ -24,9 +24,11 @@ import {
   cmdExportMix,
   cmdLoad,
   cmdCancelNewSong,
+  cmdDismissMicError,
   cmdMetronome,
   cmdNewSong,
   cmdPlayStop,
+  cmdToggleMonitor,
   cmdRecord,
   cmdRedo,
   cmdReturnZero,
@@ -83,10 +85,10 @@ function Bench() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const status = useStatus();
 
-  // engine status → bridge (§22.5); takes flush on stop (§17.4)
+  // engine status → bridge (§22.5); takes flush on stop (§17.4, TASK-007 audio path)
   useEffect(() => {
     engine.onStatus = (s) => pushStatus(s);
-    engine.onStop = () => cmdFlushTake();
+    engine.onStop = () => void cmdFinishTake();
     return () => {
       engine.onStatus = null;
       engine.onStop = null;
@@ -246,6 +248,7 @@ function Bench() {
         <Inspector />
       </div>
       <StatusBar />
+      <MicPanel />
       <SelfTestPanel />
       {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       <CheatSheet />
@@ -571,6 +574,66 @@ function StatusBar() {
       <span style={{ marginLeft: "auto" }} className="value">
         {dirty ? "unsaved — ctrl+s" : "in session"} · {song.name}
       </span>
+    </div>
+  );
+}
+
+/* TASK-007 microphone surface: the record-armed state, the monitoring switch
+   (default OFF, headphone warning) and LR-0007/LR-0008 failures — all inline,
+   never a modal (P-04, P-14). Renders only when it has something honest to say. */
+function MicPanel() {
+  const micError = useStore((s) => s.micError);
+  const micArmed = useStore((s) => s.micArmed);
+  const monitor = useStore((s) => s.monitor);
+  const lastTake = useStore((s) => s.lastTake);
+  if (!micError && !micArmed && !monitor) return null;
+  return (
+    <div
+      role={micError ? "alert" : "status"}
+      className="mic-panel step-shadow"
+      style={{
+        position: "fixed",
+        left: 16,
+        bottom: 40,
+        zIndex: 120,
+        maxWidth: 420,
+        padding: "10px 12px",
+        background: "var(--grain-paper)",
+        border: `1.5px solid ${micError ? "var(--grain-signal)" : "var(--grain-line)"}`,
+        fontSize: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="micro">{micArmed ? "record-armed · audio input" : "audio input"}</span>
+        <span className="micro" style={{ marginLeft: "auto", color: "var(--grain-ink-64)" }}>
+          monitor {monitor ? "on" : "off"}
+        </span>
+        <button className={`grain-btn small ${monitor ? "toggle-on" : ""}`} onClick={cmdToggleMonitor} title="Input monitoring — default OFF; use headphones">
+          {monitor ? "Mon on" : "Mon off"}
+        </button>
+      </div>
+      {monitor && (
+        <div className="micro" style={{ color: "var(--grain-amber)" }}>
+          Headphones required — monitoring through speakers will feed back.
+        </div>
+      )}
+      {micError && (
+        <div style={{ color: "var(--grain-signal)", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <span>{micError}</span>
+          <button className="grain-btn small" onClick={cmdDismissMicError}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {micError && <div className="micro" style={{ color: "var(--grain-ink-64)" }}>Retry: arm the audio track and press R again.</div>}
+      {lastTake && (
+        <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
+          last take · {lastTake.durationS.toFixed(2)} s · peak {lastTake.peak.toFixed(3)} · {lastTake.bytes} B · media/{(lastTake.sha ?? "").slice(0, 12)}…
+        </div>
+      )}
     </div>
   );
 }

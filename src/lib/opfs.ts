@@ -125,7 +125,7 @@ async function gunzip(data: ArrayBuffer): Promise<string> {
   return stream;
 }
 
-async function sha256Hex(data: Uint8Array<ArrayBuffer>): Promise<string> {
+export async function sha256Hex(data: Uint8Array<ArrayBuffer>): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -189,6 +189,44 @@ export async function readHistory(): Promise<OpfsResult<{ song: Song; past: Song
     return { ok: true, value: { song: newest, past } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "history read failed", kind: "io" };
+  }
+}
+
+/* ---------- recorded media (TASK-007; content-addressed, ADR-0002 rule 3) ---------- */
+
+/** Store one recorded take at media/<sha>.wav and index it in the manifest.
+    Content-addressed, so an identical take is written once (dedup by design). */
+export async function writeMedia(bytes: Uint8Array<ArrayBuffer>, sha: string): Promise<OpfsResult<{ path: string; bytes: number }>> {
+  if (!opfsAvailable()) return { ok: false, error: "OPFS unavailable", kind: "unavailable" };
+  try {
+    const dir = await root();
+    const mediaDir = await dir.getDirectoryHandle(MEDIA_DIR, { create: true });
+    const fh = await mediaDir.getFileHandle(`${sha}.wav`, { create: true });
+    const w = await fh.createWritable();
+    await w.write(bytes);
+    await w.close();
+    const manifest = await readManifest(dir);
+    if (!manifest.media.some((m) => m.id === sha)) manifest.media.push({ id: sha, bytes: bytes.byteLength });
+    await writeManifest(dir, manifest);
+    return { ok: true, value: { path: `${MEDIA_DIR}/${sha}.wav`, bytes: bytes.byteLength } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "media write failed";
+    return { ok: false, error: msg, kind: /quota|storage/i.test(msg) ? "quota" : "io" };
+  }
+}
+
+/** Read a recorded take back by its content address (harness + future playback). */
+export async function readMedia(sha: string): Promise<OpfsResult<ArrayBuffer>> {
+  if (!opfsAvailable()) return { ok: false, error: "OPFS unavailable", kind: "unavailable" };
+  try {
+    const dir = await root();
+    const mediaDir = await dir.getDirectoryHandle(MEDIA_DIR, { create: false }).catch(() => null);
+    if (!mediaDir) return { ok: false, error: `media/${sha}.wav not found`, kind: "io" };
+    const fh = await mediaDir.getFileHandle(`${sha}.wav`, { create: false }).catch(() => null);
+    if (!fh) return { ok: false, error: `media/${sha}.wav not found`, kind: "io" };
+    return { ok: true, value: await (await fh.getFile()).arrayBuffer() };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "media read failed", kind: "io" };
   }
 }
 
