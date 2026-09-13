@@ -13,12 +13,21 @@ declare global {
   }
 }
 
-const EVID = resolve("docs/evidence/sb004");
+/* This battery writes its numbers to docs/evidence/sb005/. The SB-004 files stay
+   untouched as the historical record, so old and new behaviour can be compared
+   side by side in the ledger (TASK-035 requires the ledger's numbers to come
+   from THIS run, not from earlier evidence files). */
+const EVID = resolve("docs/evidence/sb005");
 mkdirSync(EVID, { recursive: true });
+const EVID5 = EVID;
 const PROXY = "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.";
 
 function evidence(name: string, data: Record<string, unknown>): void {
   writeFileSync(resolve(EVID, name), JSON.stringify({ proxy: PROXY, ...data }, null, 2) + "\n");
+}
+
+function evidence5(name: string, data: Record<string, unknown>): void {
+  writeFileSync(resolve(EVID5, name), JSON.stringify({ proxy: PROXY, ...data }, null, 2) + "\n");
 }
 
 function kb(path: string): number {
@@ -148,13 +157,13 @@ test("HV-4 — one-truth propagation: Lattice edit reaches model + Loom", async 
 test("parity guard — measured vs R-2 dual threshold", async ({ page }) => {
   await enterBench(page);
   const result = await page.evaluate(() => window.app.selftest.renderparity());
-  evidence("parity.json", {
+  evidence5("parity.json", {
     parity: result.parity,
-    determinism: result.determinism,
     error: result.error,
-    verdict: result.parity?.gateMet ? "PASS (ship gate)" : "FAIL",
-    disclosure:
-      "The constitution floor (−96 dBFS) is reported separately and is the M2-exit target (TASK-023), not a hidden pass. The gate was not widened for this run.",
+    verdict: result.parity?.gateMet ? "PASS" : "FAIL",
+    gate:
+      "R-2-AMENDED (SB-005): ONE hard gate, the constitution floor −96 dBFS. The old −80 dBFS ship gate is dead — measurement showed the assumed preroll/envelope divergence it absorbed does not exist. Gates tighten on evidence; they never widen to pass.",
+    disclosure: "Measured value and both hashes are always present (P-07); the verdict cannot be read alone.",
   });
   expect(result.error).toBeNull();
   expect(result.parity, "no parity result").not.toBeNull();
@@ -163,25 +172,36 @@ test("parity guard — measured vs R-2 dual threshold", async ({ page }) => {
 
 /* ---------------------------------------------------------------- TASK-021 e */
 
-test("determinism — double render (HV-5 / E-28)", async ({ page }) => {
+test("determinism — double render (HV-5 / E-28 · AMM-003 Branch A)", async ({ page }) => {
   await enterBench(page);
   const result = await page.evaluate(() => window.app.selftest.determinism());
   const diag = await page.evaluate(() => window.app.diag.determinismRuns(4));
   const det = result.determinism;
-  evidence("determinism.json", {
+  evidence5("determinism.json", {
     determinism: det,
     fourRenderDiagnostic: diag,
-    verdict: det?.ok ? "PASS" : "FAIL",
+    verdict: det?.ok
+      ? det.bitIdentical
+        ? "PASS (bit-identical)"
+        : "PASS (amended-green: platform WebAudio noise within cap)"
+      : "FAIL",
+    amendedRule:
+      "AMM-003 Branch A, ratified SB-005 after the TASK-026 bisect. Preview-layer E-28 = byte-identical for app-controlled paths; for a render that passes through native WebAudio nodes, determinism = max|Δ| ≤ the per-browser cap. Root cause (measured, not inferred): the divergence is introduced by Chromium's render scheduling and GROWS WITH GRAPH SIZE — bit-stable at ≤16 voices, −150 dBFS @64, −84 dBFS @256, −65 dBFS @1024 in a synthetic ladder with no app state and no PRNG (docs/evidence/sb005/).",
     disclosure:
-      "Scope is ADR-0002: same build, same context configuration, one Song, two in-memory renders. The 4-render diagnostic separates a one-time warm-up artifact from true nondeterminism; the SHA-256 criterion is NOT relaxed here — the tolerance question is constitutional (AMM-003-candidate), not a gate to quietly widen.",
+      "Scope is ADR-0002: same build, same context configuration, one Song, two in-memory renders. BOTH behaviours are recorded — bit-identity AND measured-vs-cap — and the measured value with both hashes is always present. The 4-render diagnostic separates warm-up from true nondeterminism.",
   });
   expect(det, "no determinism result").not.toBeNull();
-  // Deliberately loud: if two renders of one Song are not bit-identical this test
-  // MUST fail — that is a real P-08/E-28 failure, never flakiness to rerun away.
-  expect(
-    det.bitIdentical,
-    `two offline renders of one Song differ: max|Δ|=${det.maxAbsDiff.toExponential(3)} (${det.dbfs.toFixed(1)} dBFS) · hashes ${det.hashA.slice(0, 16)}… vs ${det.hashB.slice(0, 16)}…`
-  ).toBe(true);
+  expect(det.hashA).toHaveLength(64);
+  expect(det.hashB).toHaveLength(64);
+  expect(det.ok).toBe(true);
+  // The amended rule is not a blank cheque: if this run is NOT bit-identical it
+  // must have passed via the cap, with the measured number inside it and shown.
+  if (!det.bitIdentical) {
+    expect(det.capMet, "not bit-identical and the cap was missed — this is a real E-28 failure").toBe(true);
+    expect(det.amended).toBe(true);
+    expect(det.maxAbsDiff).toBeLessThanOrEqual(det.capAbs);
+    expect(det.dbfs).toBeLessThanOrEqual(det.capDbfs);
+  }
 });
 
 /* ---------------------------------------------------------------- TASK-021 f */
@@ -415,4 +435,188 @@ test("TASK-007c — record-armed state, both themes", async ({ page }) => {
   expect(ui.monitor).toBe(false);
   expect(kb(day)).toBeLessThanOrEqual(200);
   expect(kb(night)).toBeLessThanOrEqual(200);
+});
+
+/* ---------------------------------------------------------------- TASK-032 */
+/* R-4 interim, verified rather than claimed: the notches must sit at TRUE dB
+   positions under the bar's actual mapping (−60 → 0 dBFS ⇒ −12 dB is 80 %,
+   −6 dB is 90 %), each must be LABELLED, and the numeric peak readout and the
+   peak-hold must both be present. */
+
+test("TASK-032 / R-4 — meter: labelled dB notches, numeric peak readout, peak-hold", async ({ page }) => {
+  await enterBench(page);
+  await page.getByRole("tab", { name: /desk/i }).click();
+  await page.waitForSelector(".desk");
+  await page.getByTitle("Play / Stop (Space)").click(); // signal so the meter and hold are exercised
+  await page.waitForTimeout(900);
+
+  const meter = await page.evaluate(() => {
+    const bar = document.querySelector(".grain-meter") as HTMLElement | null;
+    if (!bar) return null;
+    const readout = document.querySelector(".meter-peak") as HTMLElement | null;
+    return {
+      notches: Array.from(bar.querySelectorAll(".notch")).map((n) => ({
+        bottom: (n as HTMLElement).style.bottom,
+        label: n.textContent?.trim() ?? "",
+      })),
+      fillHeight: (bar.querySelector(".fill") as HTMLElement | null)?.style.height ?? null,
+      holdPresent: Boolean(bar.querySelector(".hold")),
+      holdBottom: (bar.querySelector(".hold") as HTMLElement | null)?.style.bottom ?? null,
+      readout: readout?.textContent?.trim() ?? null,
+      readoutFontVariant: readout ? getComputedStyle(readout).fontVariantNumeric : null,
+      masterGainLabels: Array.from(document.querySelectorAll(".strip.master .value")).map((e) => e.textContent?.trim()),
+      barWidthPx: Math.round(bar.getBoundingClientRect().width),
+    };
+  });
+
+  const shot = resolve(EVID, "meter-desk-dayshift.png");
+  await page.screenshot({ path: shot });
+
+  evidence5("meter.json", {
+    meter,
+    expectedNotchBottom: { "−12": "80%", "−6": "90%" },
+    screenshotKB: kb(shot),
+    verdict:
+      meter &&
+      meter.notches.length === 2 &&
+      meter.notches[0].label === "−12" &&
+      meter.notches[1].label === "−6" &&
+      meter.notches[0].bottom === "80%" &&
+      meter.notches[1].bottom === "90%" &&
+      meter.readoutFontVariant === "tabular-nums"
+        ? "PASS"
+        : "FAIL",
+    disclosure:
+      "Mapping is −60 dBFS (bottom) → 0 dBFS (top); the two M1 notches are at −12 and −6 dBFS, each carrying its own label. Under the previous LINEAR-amplitude bar the 78 %/90 % notches meant −2.2/−0.9 dBFS — not the loudness they appeared to mark. The full §6.8.3 scale is M2 scope (R-4).",
+  });
+
+  expect(meter, "no meter found").not.toBeNull();
+  expect(meter!.notches.map((n) => n.label)).toEqual(["−12", "−6"]);
+  expect(meter!.notches.map((n) => n.bottom)).toEqual(["80%", "90%"]);
+  expect(meter!.readout, "no numeric peak readout").not.toBeNull();
+  expect(meter!.readoutFontVariant).toBe("tabular-nums");
+  // P-15: MASTER_GAIN = 0.9 is −0.92 dB and the strip must say so, not "−0.0 dB".
+  expect(
+    meter!.masterGainLabels.some((l) => l === "-0.9 dB"),
+    `master gain readout was ${JSON.stringify(meter!.masterGainLabels)} (expected the true MASTER_GAIN value, not "-0.0 dB")`
+  ).toBe(true);
+});
+
+/* ---------------------------------------------------------------- TASK-030 */
+
+test("TASK-030 — underrun counter is live: a synthetic main-thread stall is counted and ringed", async ({ page }) => {
+  await enterBench(page);
+  await page.getByTitle("Play / Stop (Space)").click();
+  await page.waitForTimeout(600); // let the transport steady so the stall is the only anomaly
+  const before = await page.evaluate(() => window.app.engine().underruns);
+
+  // Block the main thread well past the 120 ms look-ahead window. The scheduler
+  // cannot fire, so material comes due with nothing queued ahead of it: the web
+  // layer's realtime feed failed, which IS this layer's underrun.
+  const stallMs = 500;
+  await page.evaluate((ms) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < ms) {
+      /* deliberately spin — a stand-in for GC / layout / a heavy edit */
+    }
+  }, stallMs);
+  await page.waitForTimeout(400);
+
+  const after = await page.evaluate(() => window.app.engine());
+  const ring = after.xruns.slice(-5);
+  evidence5("underrun-stall.json", {
+    underrunsBefore: before,
+    underrunsAfter: after.underruns,
+    delta: after.underruns - before,
+    ringSize: after.xruns.length,
+    lastEvents: ring,
+    lookaheadMs: 120,
+    timerBudgetMs: 25,
+    stallMs,
+    verdict: after.underruns > before && ring.some((r: any) => r.cause === "starvation") ? "PASS" : "FAIL",
+    disclosure:
+      "PROXY: a busy-loop stands in for a real main-thread stall (GC, layout, a heavy edit). The counter increments on look-ahead starvation, the ring names the cause and the moment, and nothing is auto-repaired — failure is loud (P-14) and no hidden moves are made (P-15).",
+  });
+  expect(after.underruns, "counter never incremented across a stall past the look-ahead window").toBeGreaterThan(before);
+  expect(ring.some((r: any) => r.cause === "starvation"), `no starvation entry in the ring: ${JSON.stringify(ring)}`).toBe(true);
+});
+
+/* ---------------------------------------------------------------- TASK-033 */
+/* R-5 / HV-4 amended: single-surface DOM is correct (P-01), so the observable
+   requirement is the stronger one — a surface that was switched away from and
+   back must render from the MODEL, never from a stale cache. */
+
+test("TASK-033 — remount-freshness: switch away → mutate → switch back renders the model", async ({ page }) => {
+  await enterBench(page);
+
+  const readModel = () =>
+    page.evaluate(() => {
+      const s = window.app.song();
+      const onSteps = s.clips
+        .filter((c: any) => c.pattern)
+        .reduce((n: number, c: any) => n + c.pattern.rows.reduce((m: number, r: any) => m + r.steps.filter((x: any) => x.on).length, 0), 0);
+      return { onSteps, tracks: s.tracks.filter((t: any) => t.kind !== "master").length };
+    });
+  const count = (sel: string) => page.locator(sel).count();
+  const visit = async (tab: RegExp, selector: string) => {
+    await page.getByRole("tab", { name: tab }).click();
+    await page.waitForSelector(selector);
+  };
+
+  const clip = await page.evaluate(() => {
+    const c = window.app.song().clips.find((x: any) => x.pattern);
+    return { id: c.id, pitch: c.pattern.rows[0].pitch };
+  });
+
+  const baselineModel = await readModel();
+  await visit(/loom/i, "[data-loom-step]");
+  const baselineLoom = await count("[data-loom-step]");
+
+  // Switch AWAY from Loom, mutate through the real command path, switch back.
+  await visit(/desk/i, ".desk");
+  await page.evaluate(({ clipId, pitch }) => window.app.edit.toggleStep(clipId, pitch, 3), { clipId: clip.id, pitch: clip.pitch });
+
+  // (2) model-first assertion: the mutation is observable in the model BEFORE
+  // any view makes a claim about it.
+  const mutatedModel = await readModel();
+  expect(mutatedModel.onSteps !== baselineModel.onSteps, "mutation not observable in the model").toBe(true);
+
+  // (3) remount-freshness: the decisive probe.
+  await visit(/loom/i, "[data-loom-step]");
+  const remountedLoom = await count("[data-loom-step]");
+
+  // Walk the remaining four surfaces and confirm each mounts and projects the
+  // current model rather than a cache.
+  const mounted: string[] = ["loom"];
+  await visit(/lattice/i, ".lattice-step");
+  mounted.push("lattice");
+  const latticeOn = await count(".lattice-step.on");
+  await visit(/ivory/i, ".ivory");
+  mounted.push("ivory");
+  await visit(/desk/i, ".desk");
+  mounted.push("desk");
+  const deskStrips = await count(".strip:not(.master)"); // master strip is a separate element, not a track
+  await visit(/scope/i, ".scope");
+  mounted.push("scope");
+  const scopeCells = await count(".scope");
+
+  evidence5("remount-freshness.json", {
+    baseline: { model: baselineModel, loomDom: baselineLoom },
+    mutatedModel,
+    loomAfterRemount: remountedLoom,
+    expectedLoomAfterRemount: mutatedModel.onSteps,
+    latticeOnAfterRemount: latticeOn,
+    deskStrips, expectedDeskStrips: mutatedModel.tracks,
+    scopeCells,
+    surfacesRemounted: mounted,
+    verdict:
+      remountedLoom === mutatedModel.onSteps && deskStrips === mutatedModel.tracks && mounted.length === 5 ? "PASS" : "FAIL",
+    disclosure:
+      "The host mounts exactly ONE surface at a time (P-01, R-5), so a switched-back surface is a fresh mount and not a cached DOM. The decisive probe is Loom: switch away → mutate via the model → switch back must show the NEW count. No stale-cache orphan was found. Ivory's canvas exposes no model-derived count selector, so it is covered by remount + consistency rather than a DOM count — stated here rather than implied.",
+  });
+
+  expect(remountedLoom, "Loom rendered a stale cache after remount instead of the model").toBe(mutatedModel.onSteps);
+  expect(deskStrips).toBe(mutatedModel.tracks);
+  expect(scopeCells).toBeGreaterThan(0);
+  expect(mounted).toHaveLength(5);
 });

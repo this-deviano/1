@@ -1,0 +1,28 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "underrunsBefore": 0,
+  "underrunsAfter": 2,
+  "delta": 2,
+  "ringSize": 2,
+  "lastEvents": [
+    {
+      "wallMs": 1629,
+      "ctxTime": 1.132,
+      "playheadTick": 1043,
+      "cause": "starvation",
+      "detail": "scheduler timer starved: 514 ms between passes (budget 25 ms, look-ahead 120 ms)"
+    },
+    {
+      "wallMs": 1629,
+      "ctxTime": 1.132,
+      "playheadTick": 1043,
+      "cause": "starvation",
+      "detail": "3 material event(s) came due before the look-ahead window reached them (first at tick 1440)"
+    }
+  ],
+  "lookaheadMs": 120,
+  "timerBudgetMs": 25,
+  "stallMs": 500,
+  "verdict": "PASS",
+  "disclosure": "PROXY: a busy-loop stands in for a real main-thread stall (GC, layout, a heavy edit). The counter increments on look-ahead starvation, the ring names the cause and the moment, and nothing is auto-repaired — failure is loud (P-14) and no hidden moves are made (P-15)."
+}

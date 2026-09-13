@@ -1,0 +1,66 @@
+{
+  "proxy": "PROXY — headless Chromium via playwright.launch, about:blank, OfflineAudioContext 2ch @44.1 kHz, raw float32 bytes hashed with FNV-1a 32-bit.",
+  "runs": 4,
+  "voices": 64,
+  "sampleRate": 44100,
+  "samples": 423529,
+  "generatedBy": "tests/preview/determinism-steps.mjs",
+  "result": {
+    "samePage": [
+      "8cfea863",
+      "04c6f89a",
+      "a7c093e4",
+      "4db9b17d"
+    ],
+    "freshPage": [
+      "5b7ff38e",
+      "86fa7c87",
+      "18e5953f",
+      "7ef33bfc"
+    ],
+    "frozenClock": [
+      "2ad3e2b1",
+      "92924b2e",
+      "00d1cd54",
+      "94046a04"
+    ],
+    "clockOverride": {
+      "dateFrozen": true,
+      "perfFrozen": true
+    },
+    "pureJs": [
+      {
+        "rngHash": "2255bb0c",
+        "eventHash": "bda37d0f",
+        "events": 768
+      },
+      {
+        "rngHash": "2255bb0c",
+        "eventHash": "bda37d0f",
+        "events": 768
+      },
+      {
+        "rngHash": "2255bb0c",
+        "eventHash": "bda37d0f",
+        "events": 768
+      },
+      {
+        "rngHash": "2255bb0c",
+        "eventHash": "bda37d0f",
+        "events": 768
+      }
+    ],
+    "summary": {
+      "samePageStable": false,
+      "freshPageStable": false,
+      "frozenClockStable": false,
+      "pureJsRngStable": true,
+      "pureJsEventStable": true
+    }
+  },
+  "verdict": {
+    "STEP-2 frozen clock": "VARIES — clock leakage possible",
+    "STEP-4 in-process vs fresh": "VARIES both ways — not in-process state",
+    "STEP-5 pure-JS leg": "BIT-STABLE — the app-controlled leg is deterministic"
+  }
+}

@@ -672,19 +672,22 @@ function SelfTestPanel() {
       </div>
       {st.parity && (
         <div>
-          measured max|Δ| {st.parity.maxAbsDiff.toExponential(3)} ({st.parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.parity.dbfs.toFixed(1)} dBFS) · ship gate {st.parity.gateDbfs} dBFS {
+          measured max|Δ| {st.parity.maxAbsDiff.toExponential(3)} ({st.parity.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.parity.dbfs.toFixed(1)} dBFS) · gate {st.parity.gateDbfs} dBFS (constitution floor, R-2-amended) {
             st.parity.gateMet ? "met" : "MISSED"
-          } · constitution floor {st.parity.floorDbfs} dBFS {st.parity.floorMet ? "met" : "NOT met"} · bit-identical {String(st.parity.bitIdentical)}
+          } · bit-identical {String(st.parity.bitIdentical)}
         </div>
       )}
       {st.parity && (
         <div className="micro" style={{ color: "var(--grain-ink-64)" }}>
-          live {st.parity.liveHash.slice(0, 16)}… · offline {st.parity.offlineHash.slice(0, 16)}… · M2 target: converge to the floor (TASK-023)
+          live {st.parity.liveHash.slice(0, 16)}… · offline {st.parity.offlineHash.slice(0, 16)}…
         </div>
       )}
-      {st.determinism && !st.determinism.ok && (
+      {st.determinism && (
         <div>
-          determinism: {st.determinism.hashA.slice(0, 12)}… vs {st.determinism.hashB.slice(0, 12)}… (same-scope, ADR-0002)
+          determinism: {st.determinism.hashA.slice(0, 12)}… vs {st.determinism.hashB.slice(0, 12)}… · measured {st.determinism.maxAbsDiff.toExponential(3)} (
+          {st.determinism.dbfs === Number.NEGATIVE_INFINITY ? "−inf" : st.determinism.dbfs.toFixed(1)} dBFS) · cap {st.determinism.capDbfs} dBFS {
+            st.determinism.capMet ? "met" : "MISSED"
+          } · same-scope, ADR-0002
         </div>
       )}
       {st.error && <div>self-test error: {st.error}</div>}

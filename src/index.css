@@ -1079,9 +1079,12 @@ ol {
   background: var(--grain-ink-40);
 }
 
+/* §6.8.3 meter — M1 interim per R-4 (SB-005). dB-referenced (−60 → 0 dBFS),
+   LABELLED notches at true dB positions, separate peak-hold line. Gradients
+   remain forbidden in functional UI (G-12). */
 .grain-meter {
   position: relative;
-  width: 10px;
+  width: 22px;
   background: var(--grain-paper-sunken);
   border: 1px solid var(--grain-line);
   overflow: hidden;
@@ -1094,22 +1097,44 @@ ol {
   background: var(--grain-ok); /* solid fill — gradients are forbidden in functional UI (G-12) */
   z-index: 0;
 }
-/* Zone notches mark the amber/signal thresholds without a gradient (G-12). */
-.grain-meter::before,
-.grain-meter::after {
-  content: "";
+/* Peak-hold (R-4c): a decaying line, never frozen — the bar stays honest (P-07). */
+.grain-meter .hold {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grain-ink);
+  z-index: 2;
+}
+/* Notches at true dB positions, each carrying its own value (R-4a): an
+   unlabelled notch cannot be read as a loudness, so it is decoration. */
+.grain-meter .notch {
   position: absolute;
   left: 0;
   right: 0;
   height: 1px;
   background: var(--grain-ink-40);
-  z-index: 1;
+  z-index: 3;
 }
-.grain-meter::before {
-  bottom: 78%; /* amber zone start */
+.grain-meter .notch i {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  font: 400 8px/8px var(--grain-font-mono);
+  font-style: normal;
+  color: var(--grain-ink-64);
+  letter-spacing: -0.2px;
 }
-.grain-meter::after {
-  bottom: 90%; /* signal zone start */
+.grain-meter-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.meter-peak {
+  font-variant-numeric: tabular-nums;
+  color: var(--grain-ink-64);
+  white-space: nowrap;
 }
 
 /* ---------- Overlays ---------- */

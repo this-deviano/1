@@ -14,6 +14,7 @@ let status: EngineStatus = {
   underruns: 0,
   latencyMs: 0,
   clipAvg: 0,
+  clipHold: 0,
 };
 
 const listeners = new Set<() => void>();
@@ -78,9 +79,11 @@ export interface SelfTestRunResult {
   error: string | null;
 }
 
-/* R-2: the verdict ALWAYS carries the measured value and BOTH thresholds — the
-   ship gate (−80 dBFS) and the constitution floor (−96 dBFS) — so neither the
-   console line nor the returned object can be read as "passed" without them. */
+/* R-2-AMENDED + AMM-003 Branch A (SB-005): every verdict carries the measured
+   value, the applicable threshold and BOTH hashes, so neither the console line
+   nor the returned object can be read as "passed" without them (P-07). A
+   determinism pass that came from the cap (not from bit-equality) prints as
+   `amended-green` — the ledger records both behaviours. */
 async function runBothSelfTests(): Promise<SelfTestRunResult> {
   setSelfTest({ running: true, error: null });
   try {
@@ -89,7 +92,10 @@ async function runBothSelfTests(): Promise<SelfTestRunResult> {
     setSelfTest({ running: false, parity, determinism });
     // eslint-disable-next-line no-console
     console.log(
-      `[selftest] renderparity: ${parity.ok ? "PASS" : "FAIL"} · measured max|Δ|=${parity.maxAbsDiff.toExponential(3)} (${fmtDbfs(parity.dbfs)} dBFS) · ship gate ${parity.gateDbfs} dBFS ${parity.gateMet ? "met" : "MISSED"} · constitution floor ${parity.floorDbfs} dBFS ${parity.floorMet ? "met" : "NOT met"} · bit-identical=${parity.bitIdentical}\n[selftest] determinism: ${determinism.ok ? "PASS" : "FAIL"} · ${determinism.hashA.slice(0, 16)}… vs ${determinism.hashB.slice(0, 16)}…`
+      `[selftest] renderparity: ${parity.ok ? "PASS" : "FAIL"} · measured max|Δ|=${parity.maxAbsDiff.toExponential(3)} (${fmtDbfs(parity.dbfs)} dBFS) · gate ${parity.gateDbfs} dBFS (constitution floor, R-2-amended) ${parity.gateMet ? "met" : "MISSED"} · bit-identical=${parity.bitIdentical}\n` +
+        `[selftest]   hashes: live ${parity.liveHash.slice(0, 16)}… · offline ${parity.offlineHash.slice(0, 16)}…\n` +
+        `[selftest] determinism: ${determinism.ok ? "PASS" : "FAIL"} · measured max|Δ|=${determinism.maxAbsDiff.toExponential(3)} (${fmtDbfs(determinism.dbfs)} dBFS) · cap ${determinism.capDbfs} dBFS ${determinism.capMet ? "met" : "MISSED"} · bit-identical=${determinism.bitIdentical}${determinism.amended ? " · AMENDED-GREEN (AMM-003 Branch A — platform WebAudio noise, graph-size dependent)" : ""}\n` +
+        `[selftest]   hashes: ${determinism.hashA.slice(0, 16)}… vs ${determinism.hashB.slice(0, 16)}…`
     );
     return { parity, determinism, error: null };
   } catch (e) {

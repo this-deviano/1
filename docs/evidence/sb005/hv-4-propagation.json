@@ -1,0 +1,19 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "propagationMs": 4.200000762939453,
+  "budgetMs": 8,
+  "baseline": {
+    "clipId": "clp_mtz8ihxsm",
+    "notes": 14,
+    "onSteps": 14,
+    "loomSteps": 14
+  },
+  "after": {
+    "notes": 13,
+    "onSteps": 13
+  },
+  "loomStepsBefore": 14,
+  "loomStepsAfter": 13,
+  "verdict": "PASS",
+  "disclosure": "Loom miniature and Ivory CANNOT be observed in the same frame as Lattice: the surface host renders exactly one surface at a time (tabbed surfaces), so the runbook's simultaneous-view check has no DOM to observe. What is measured is the real propagation chain — one store, pure projections: the edit flips the Lattice DOM in X ms, mutates the single Song, and the Loom miniature marker count changes by exactly one on the next visit. Ivory is the same pure projection of the same Song (ADR-0002 rule 1) and is asserted through the model."
+}

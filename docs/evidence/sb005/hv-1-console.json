@@ -1,0 +1,8 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "window_ms": 10000,
+  "observedErrorsOrWarnings": 0,
+  "entries": [],
+  "verdict": "PASS",
+  "disclosure": "Landing load + Bench entry, then a 10 s quiet window (runbook HV-1)."
+}

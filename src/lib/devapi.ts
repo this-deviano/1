@@ -99,6 +99,10 @@ const api = {
     cycle: engine.cycle,
     latencyMs: getStatus().latencyMs,
     underruns: getStatus().underruns,
+    clipHold: getStatus().clipHold,
+    // TASK-030: the last-100-events underrun ring, so a stall is diagnosable
+    // from the harness instead of being a bare counter (P-07/P-14).
+    xruns: engine.xruns(),
     playheadTick: getStatus().playheadTick,
   }),
   undo: { stats: () => undoStats() },

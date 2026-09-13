@@ -10,6 +10,11 @@ import { seedStream, STREAM_TAGS } from "./seed";
 const LOOKAHEAD_S = 0.12;
 const TIMER_MS = 25;
 const METER_HISTORY = 96;
+/* TASK-030: the look-ahead scheduler is the web layer's realtime feed, so its
+   starvation IS this layer's underrun. Ring for the inspector (E-14 spirit). */
+const XRUN_RING = 100;
+const XRUN_GRACE_S = 0.01; // a just-past-due event inside this grace is still fired (matches the live clamp)
+const HOLD_DECAY = 0.995; // peak-hold decay per 25 ms tick — visible, never frozen (P-07)
 
 /* Shared render constants — the LIVE and OFFLINE graphs must be built from
    the SAME numbers (C-2 lesson: baked constants drift, parity dies). */
@@ -20,7 +25,12 @@ const COMP_RELEASE = 0.12;
 const MASTER_GAIN = 0.9;
 const EXPORT_SR = 44100;
 const PREROLL_S = 0.05; // offline voices start at t+PREROLL; live mapping uses the same offset via startCtxTime
-export { EXPORT_SR, PREROLL_S };
+/* MASTER_GAIN is a real −0.92 dB move on the master bus. It is exported so the
+   Desk can print it instead of the flat "−0.0 dB" it used to show: a gain the
+   user cannot see is a hidden gain move (P-15), and the number must be the
+   number (P-07). */
+export const MASTER_GAIN_DB = 20 * Math.log10(MASTER_GAIN);
+export { EXPORT_SR, PREROLL_S, MASTER_GAIN };
 
 export interface EngineStatus {
   running: boolean;
@@ -29,15 +39,19 @@ export interface EngineStatus {
   underruns: number;
   latencyMs: number;
   clipAvg: number; // 0..1 loudness estimate, master
+  clipHold: number; // 0..1 decaying peak-hold, master (TASK-032 · R-4c)
 }
 
-interface QueuedNote {
-  time: number; // ctx time
-  pitch: number;
-  vel: number; // 1..127
-  dur: number; // seconds
-  track: Track;
-  gainDb: number; // placement.gain override (§5.3) — model is truth, projections obey
+/* TASK-030 — one underrun event. `wallMs` is honest wall-clock time from the
+   moment it was observed; `playheadTick` is where the transport thought it
+   was. The ring exists so a failure is diagnosable instead of a bare counter
+   (P-07, P-14). */
+export interface XrunEntry {
+  wallMs: number;
+  ctxTime: number;
+  playheadTick: number;
+  cause: "starvation" | "context";
+  detail: string;
 }
 
 /* The Song→audio material map: one model-driven event list (P-05, SB-003 §4).
@@ -85,7 +99,10 @@ class LuthierEngine {
   capture: { pitch: number; vel: number; tick: number }[] = [];
   private countInEnd = 0;
 
-  status: EngineStatus = { running: false, recording: false, playheadTick: 0, underruns: 0, latencyMs: 0, clipAvg: 0 };
+  status: EngineStatus = { running: false, recording: false, playheadTick: 0, underruns: 0, latencyMs: 0, clipAvg: 0, clipHold: 0 };
+  private xrunLog: XrunEntry[] = []; // last XRUN_RING events (TASK-030)
+  private lastStateAnomaly: string | null = null;
+  private lastTickWallMs = 0; // TASK-030(a): wall-clock gap between scheduler passes
   private meterBuf = new Float32Array(256);
   private meterHistory: number[] = [];
   onStatus: ((s: EngineStatus) => void) | null = null;
@@ -128,18 +145,27 @@ class LuthierEngine {
     this.song = song;
   }
 
+  /* The ONE synthesis-noise stream derivation (E-28/E-003), shared by the live
+     path, the offline path and the parity guard. E-006: a second copy of this
+     derivation would be an orphan factory — if the copies drifted, a guard
+     built from one could not catch a defect in the other. */
+  noiseStream(seed: number | undefined): () => number {
+    return seedStream(seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE);
+  }
+
   /* ---------- transport (§9.5) ---------- */
 
   async play(fromTick?: number) {
     const ctx = await this.ensure();
     if (ctx.state === "suspended") await ctx.resume();
-    this.rng = seedStream(this.song?.seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE); // re-seed per transport start (E-28/E-003: same source tag → same sequence)
+    this.rng = this.noiseStream(this.song?.seed); // re-seed per transport start (E-28/E-003: same source tag → same sequence)
     if (this.playing) this.stopScheduling();
     this.playing = true;
     this.startTick = fromTick ?? this.status.playheadTick;
     this.startCtxTime = ctx.currentTime + 0.06;
     this.scheduledUntilTick = this.startTick;
     this.tickAtLastSchedule = this.startTick;
+    this.lastTickWallMs = 0; // TASK-030: do not count the gap between transports
     this.status.running = true;
     this.emit();
     this.tickTimer();
@@ -211,6 +237,21 @@ class LuthierEngine {
     if (!this.playing || !this.ctx || !this.song) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
+
+    /* TASK-030(a), the blunt signal: the scheduler itself did not get to run.
+       The look-ahead window is LOOKAHEAD_S of musical time; if the main thread
+       is blocked past a few timer periods, no look-ahead can save the events
+       that came due inside the gap. Realtime feeding in this layer is the main
+       thread, so that is an underrun by definition. */
+    const wall = performance.now();
+    if (this.lastTickWallMs !== 0 && wall - this.lastTickWallMs > TIMER_MS * 3) {
+      this.recordXrun(
+        "starvation",
+        `scheduler timer starved: ${Math.round(wall - this.lastTickWallMs)} ms between passes (budget ${TIMER_MS} ms, look-ahead ${Math.round(LOOKAHEAD_S * 1000)} ms)`
+      );
+    }
+    this.lastTickWallMs = wall;
+
     const qpm = this.song.qpm;
     const secPerTick = 60 / qpm / TPQ;
     const horizonTick = this.startTick + Math.max(0, now + LOOKAHEAD_S - this.startCtxTime) / secPerTick;
@@ -251,9 +292,42 @@ class LuthierEngine {
       this.meterHistory.push(peak);
       if (this.meterHistory.length > METER_HISTORY) this.meterHistory.shift();
       this.status.clipAvg = peak;
+      // peak-hold (R-4c): decays, so it is a hold and not a frozen bar
+      this.status.clipHold = Math.max(peak, this.status.clipHold * HOLD_DECAY);
+    }
+
+    // TASK-030(b): context state anomalies while the transport is feeding
+    if (ctx.state !== "running") {
+      if (this.lastStateAnomaly !== ctx.state) {
+        this.lastStateAnomaly = ctx.state;
+        this.recordXrun("context", `AudioContext left "running": ${ctx.state}`);
+      }
+    } else {
+      this.lastStateAnomaly = null;
     }
     this.emit();
   };
+
+  /* TASK-030 — record one underrun: counter (loud, never silent) + ring entry.
+     No auto-remediation: we surface it and let the user act (P-14/P-15). */
+  private recordXrun(cause: XrunEntry["cause"], detail: string) {
+    const entry: XrunEntry = {
+      wallMs: Math.round(performance.now()),
+      ctxTime: this.ctx ? Math.round(this.ctx.currentTime * 1000) / 1000 : 0,
+      playheadTick: Math.round(this.status.playheadTick),
+      cause,
+      detail,
+    };
+    this.xrunLog.push(entry);
+    if (this.xrunLog.length > XRUN_RING) this.xrunLog.splice(0, this.xrunLog.length - XRUN_RING);
+    this.status.underruns += 1;
+    this.emit();
+  }
+
+  /** Last ≤100 underrun events, oldest first — the inspector's evidence (P-07). */
+  xruns(): XrunEntry[] {
+    return this.xrunLog.slice();
+  }
 
   private scheduleClicks(from: number, to: number, secPerTick: number) {
     if (!this.ctx || !this.song) return;
@@ -334,15 +408,32 @@ class LuthierEngine {
     });
   }
 
+  /* TASK-030(a) — look-ahead starvation. If a material event's scheduled time
+     is already past (beyond the grace window) when the scheduler reaches it, no
+     amount of look-ahead can save it: the queue was empty when the event came
+     due. That is the web analog of an engine underrun (realtime feeding here is
+     the main thread), so it increments the counter and lands in the ring. */
   private scheduleRange(from: number, to: number, _now: number, secPerTick: number) {
     const song = this.song;
     const ctx = this.ctx;
     if (!song || !ctx) return;
     const events = this.materialEvents(song, from, to, secPerTick);
+    let missed = 0;
+    let firstMissedTick = 0;
     for (const ev of events) {
       const time = this.startCtxTime + (ev.time - this.startTick * secPerTick);
-      if (time < ctx.currentTime - 0.01) continue;
+      if (time < ctx.currentTime - XRUN_GRACE_S) {
+        if (missed === 0) firstMissedTick = Math.round(ev.time / secPerTick);
+        missed += 1;
+        continue;
+      }
       this.fireVoice({ ...ev, time });
+    }
+    if (missed > 0) {
+      this.recordXrun(
+        "starvation",
+        `${missed} material event(s) came due before the look-ahead window reached them (first at tick ${firstMissedTick})`
+      );
     }
   }
 
@@ -415,7 +506,7 @@ class LuthierEngine {
     const secPerTick = 60 / song.qpm / TPQ;
     const total = Math.max(1, lenTicks * secPerTick + tailSeconds);
     const ctx = new OfflineAudioContext(2, Math.ceil(total * EXPORT_SR), EXPORT_SR);
-    this.rng = seedStream(song.seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE); // deterministic offline render (E-28/E-003, same NOISE source tag)
+    this.rng = this.noiseStream(song.seed); // deterministic offline render (E-28/E-003, same NOISE source tag)
     // TASK-015 CORRECTION (found by the SB-004 harness): the offline bus must run
     // the SAME master chain as live — comp → master(MASTER_GAIN) → destination.
     // The previous `const { comp }` dropped the master gain entirely, so exports

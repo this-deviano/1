@@ -1,14 +1,22 @@
-/* Dev self-tests (SB-003 §4 parity guard + TASK-017 determinism).
-   The guard renders the reference song through BOTH schedulers — live
-   look-ahead semantics (OfflineAudioContext) and the offline fast-forward —
-   then compares: |max abs diff| ≤ −96 dBFS (constitution) or bit-identical.
-   Dev gate here is −80 dBFS to absorb the documented preroll/envelope
-   residual. A FAILURE surfaces as LR-0006 in a red inline panel (P-14). */
+/* Dev self-tests (SB-003 §4 parity guard + TASK-017 determinism + TASK-031).
+
+   PARITY — R-2-AMENDED (SB-005): ONE hard gate, the constitution floor
+   −96 dBFS. The −80 dBFS ship gate is dead: it was calibrated for an assumed
+   preroll/envelope divergence that measurement showed does not exist. Gates
+   tighten on evidence; they never widen to pass.
+
+   DETERMINISM — AMM-003 Branch A, ratified SB-005 after the TASK-026 bisect:
+   the app-controlled leg (model→event mapping + PRNG streams, no WebAudio) is
+   byte-identical; a render that passes through native WebAudio nodes is NOT
+   bit-stable on Chromium, and the divergence grows with graph size. Criterion:
+   bit-identical OR measured ≤ the per-browser cap, with the measured value,
+   the cap and both hashes always displayed (P-07).
+
+   A FAILURE surfaces as LR-0006 in a red inline panel (P-14), never a modal. */
 
 import { engine, EXPORT_SR, PREROLL_S } from "./engine";
 import type { Song } from "./model";
-import { TPQ, SEED_DEFAULT } from "./model";
-import { seedStream, STREAM_TAGS } from "./seed";
+import { TPQ } from "./model";
 import { makeFactorySong } from "./factory";
 
 async function digestBuffer(buf: AudioBuffer): Promise<string> {
@@ -28,14 +36,12 @@ export interface ParityResult {
   liveHash: string;
   offlineHash: string;
   bitIdentical: boolean;
-  /* R-2 dual threshold: what we ship against, and what the constitution says.
-     Both numbers are always present so the verdict can never be read alone. */
+  /* R-2-AMENDED (SB-005): ONE gate — the constitution floor. The old −80 dBFS
+     "ship gate" is gone. The measured value and the gate are always present,
+     so the verdict can never be read alone (P-07). */
   gateAbs: number;
   gateDbfs: number;
-  floorAbs: number;
-  floorDbfs: number;
   gateMet: boolean;
-  floorMet: boolean;
 }
 
 export interface DeterminismResult {
@@ -44,26 +50,36 @@ export interface DeterminismResult {
   hashB: string;
   bitIdentical: boolean;
   /* Measured divergence, so a FAIL is diagnosable instead of a bare red light
-     (P-07). `ok` stays BIT-EXACT — the tolerance question is a constitution
-     matter (AMM-003-candidate), never a silent gate widening. */
+     (P-07). */
   maxAbsDiff: number;
   dbfs: number;
   samples: number;
+  /* AMM-003 Branch A (ratified SB-005, TASK-026/031): the criterion for a
+     native-WebAudio render is measured ≤ cap. `amended` is true when the run
+     passed only via the cap — the ledger records BOTH behaviours, never one. */
+  capAbs: number;
+  capDbfs: number;
+  capMet: boolean;
+  amended: boolean;
 }
 
-/* R-2 dual threshold (SB-004).
-   SHIP gate … −80 dBFS (1e-4): absorbs the documented preroll/envelope path
-     divergence between the live-semantics leg and the offline fast-forward leg.
-   FLOOR … −96 dBFS (1.5849e-5): the constitution's deterministic-render bar,
-     and the M2-exit target (TASK-023: eliminate the divergence rather than
-     widen the gate).
-   The verdict ALWAYS carries the measured value and BOTH thresholds (P-07).
-   Never widen a gate to make a test pass: if the floor is not met, `floorMet`
-   says so and the console/panel report it loudly (LR-0006). */
-export const PARITY_GATE_DBFS = -80;
-export const PARITY_FLOOR_DBFS = -96;
-const PARITY_GATE_ABS = 1e-4; // ≈ −80 dBFS
-const PARITY_FLOOR_ABS = 1.5849e-5; // 10^(−96/20)
+/* PARITY gate — R-2-AMENDED (SB-005). The −80 dBFS ship gate is dead. This is
+   the constitution's deterministic-render floor, and it is now the hard gate.
+   Measured at SB-004: −126.43 dBFS → passes with ~30 dB margin. */
+export const PARITY_GATE_DBFS = -96;
+const PARITY_GATE_ABS = 1.5849e-5; // 10^(−96/20)
+
+/* DETERMINISM cap — AMM-003 Branch A (ratified SB-005).
+   The app-controlled leg is byte-identical; the residual seen through native
+   WebAudio nodes is Chromium's, not ours (TASK-026 bisect). Default cap
+   −120 dBFS, calibrated to the app's current reference render (−126.4 dBFS).
+   MEASURED CAVEAT (docs/evidence/sb005/): the divergence GROWS with graph
+   size — a synthetic ladder was bit-stable at ≤16 voices but −150/−84/−65 dBFS
+   at 64/256/1024 voices. −120 dBFS is therefore not a universal constant; the
+   self-test always displays the measured value next to it, and M2 must
+   re-derive the cap if arrangements grow. Gates tighten on evidence. */
+export const DETERMINISM_CAP_DBFS = -120;
+const DETERMINISM_CAP_ABS = 1e-6; // 10^(−120/20)
 
 export async function selfTestRenderParity(): Promise<ParityResult> {
   const song: Song = engine.song ?? makeFactorySong();
@@ -89,7 +105,7 @@ export async function selfTestRenderParity(): Promise<ParityResult> {
   masterL.connect(ctxLive.destination);
   engine.ctx = ctxLive as unknown as AudioContext;
   engine.comp = compL;
-  engine.setTestRng(seedStream(song.seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE));
+  engine.setTestRng(engine.noiseStream(song.seed)); // E-006: ONE derivation, owned by the engine
   engine.startTick = 0;
   engine.startCtxTime = PREROLL_S;
   const liveEvents = engine.materialEvents(song, 0, lenTicks, secPerTick);
@@ -119,11 +135,9 @@ export async function selfTestRenderParity(): Promise<ParityResult> {
   const liveHash = await digestBuffer(bufLive);
   const offlineHash = await digestBuffer(bufOffline);
   const gateMet = bitIdentical || maxDiff <= PARITY_GATE_ABS;
-  const floorMet = bitIdentical || maxDiff <= PARITY_FLOOR_ABS;
   return {
-    ok: gateMet, // the SHIP gate decides pass/fail; the floor is reported, not substituted
+    ok: gateMet, // R-2-AMENDED: the constitution floor is the gate
     gateMet,
-    floorMet,
     maxAbsDiff: maxDiff,
     dbfs,
     samples: n,
@@ -132,8 +146,6 @@ export async function selfTestRenderParity(): Promise<ParityResult> {
     bitIdentical,
     gateAbs: PARITY_GATE_ABS,
     gateDbfs: PARITY_GATE_DBFS,
-    floorAbs: PARITY_FLOOR_ABS,
-    floorDbfs: PARITY_FLOOR_DBFS,
   };
 }
 
@@ -157,14 +169,23 @@ export async function selfTestDeterminism(): Promise<DeterminismResult> {
   const hashB = await digestBuffer(b);
   const { maxDiff, samples } = channelDiff(a, b);
   const bitIdentical = hashA === hashB;
+  /* AMM-003 Branch A: bit-identical is the app-controlled case; a native-node
+     render passes when the measured divergence is at or below the cap. The
+     measured value is ALWAYS reported, and `amended` records which rule
+     produced the pass so the ledger can carry both behaviours. */
+  const capMet = maxDiff <= DETERMINISM_CAP_ABS;
   return {
-    ok: bitIdentical,
+    ok: bitIdentical || capMet,
     hashA,
     hashB,
     bitIdentical,
     maxAbsDiff: maxDiff,
     dbfs: bitIdentical ? Number.NEGATIVE_INFINITY : 20 * Math.log10(Math.max(maxDiff, 1e-12)),
     samples,
+    capAbs: DETERMINISM_CAP_ABS,
+    capDbfs: DETERMINISM_CAP_DBFS,
+    capMet,
+    amended: !bitIdentical && capMet,
   };
 }
 
