@@ -1,0 +1,29 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "baseline": {
+    "model": {
+      "onSteps": 14,
+      "tracks": 3
+    },
+    "loomDom": 14
+  },
+  "mutatedModel": {
+    "onSteps": 15,
+    "tracks": 3
+  },
+  "loomAfterRemount": 15,
+  "expectedLoomAfterRemount": 15,
+  "latticeOnAfterRemount": 15,
+  "deskStrips": 3,
+  "expectedDeskStrips": 3,
+  "scopeCells": 1,
+  "surfacesRemounted": [
+    "loom",
+    "lattice",
+    "ivory",
+    "desk",
+    "scope"
+  ],
+  "verdict": "PASS",
+  "disclosure": "The host mounts exactly ONE surface at a time (P-01, R-5), so a switched-back surface is a fresh mount and not a cached DOM. The decisive probe is Loom: switch away → mutate via the model → switch back must show the NEW count. No stale-cache orphan was found. Ivory's canvas exposes no model-derived count selector, so it is covered by remount + consistency rather than a DOM count — stated here rather than implied."
+}

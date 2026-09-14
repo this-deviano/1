@@ -167,12 +167,61 @@ function pctToDb(p: number): number {
   return p * 66 - 60;
 }
 
-export function GrainMeter({ level, height = 120 }: { level: number; height?: number }) {
-  // level 0..1, painted as segments; peak region tinted signal
-  const pct = Math.max(0, Math.min(1, level)) * 100;
+/* §6.8.3 meter — M1 interim per R-4 (SB-005).
+   The bar is dB-REFERENCED, not linear amplitude. A notch at a fraction of a
+   linear bar is decoration: "78%" is not a loudness anyone can hear. Mapping:
+   bottom = −60 dBFS, top = 0 dBFS. Notches sit at true dB positions and are
+   LABELLED. The full 0/−3/−6/−12/−18 (0 VU)/−24/−36/−48 scale lands with the
+   Part 2 Desk spec (M2 scope). Peak-hold is a separate line so the bar itself
+   stays honest to the instantaneous sample (P-07). */
+export const METER_FLOOR_DB = -60;
+const METER_NOTCHES = [-12, -6] as const; // amber, hot — labelled, true dB positions
+
+function ampToDb(amp: number): number {
+  return amp > 0 ? 20 * Math.log10(amp) : Number.NEGATIVE_INFINITY;
+}
+/** dBFS → bar fraction (0..100), or 0 for −∞. */
+function dbToMeterPct(db: number): number {
+  if (!Number.isFinite(db)) return 0;
+  const clamped = Math.max(METER_FLOOR_DB, Math.min(0, db));
+  return ((clamped - METER_FLOOR_DB) / -METER_FLOOR_DB) * 100;
+}
+function fmtDb(db: number): string {
+  return Number.isFinite(db) ? db.toFixed(1) : "−∞";
+}
+
+export function GrainMeter({
+  level,
+  hold = 0,
+  height = 120,
+  readout = false,
+}: {
+  level: number;
+  hold?: number;
+  height?: number;
+  readout?: boolean;
+}) {
+  const db = ampToDb(level);
+  const holdPct = dbToMeterPct(ampToDb(hold));
+  const bar = (
+    <div className="grain-meter" style={{ height }} title={`master peak ${fmtDb(db)} dBFS`}>
+      <div className="fill" style={{ height: `${dbToMeterPct(db)}%` }} />
+      {holdPct > 0 && <div className="hold" style={{ bottom: `${holdPct}%` }} />}
+      {METER_NOTCHES.map((n) => (
+        <span key={n} className="notch" style={{ bottom: `${dbToMeterPct(n)}%` }}>
+          <i>{String(n).replace("-", "−")}</i>
+        </span>
+      ))}
+    </div>
+  );
+  if (!readout) return bar;
   return (
-    <div className="grain-meter" style={{ height }}>
-      <div className="fill" style={{ height: `${pct}%` }} />
+    <div className="grain-meter-stack">
+      {bar}
+      {/* mono, tabular — honest to the sample (R-4b, P-07) */}
+      <span className="meter-peak value" title="master peak dBFS · mono">
+        {fmtDb(db)}
+      </span>
     </div>
   );
 }

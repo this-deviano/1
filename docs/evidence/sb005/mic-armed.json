@@ -1,0 +1,11 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "micArmed": true,
+  "monitor": false,
+  "captureLive": true,
+  "sampleRate": 44100,
+  "dayshiftKB": 90,
+  "nightshiftKB": 90,
+  "verdict": "PASS",
+  "disclosure": "Monitoring is asserted OFF by default (TASK-007). Device is Chromium's fake media stream."
+}

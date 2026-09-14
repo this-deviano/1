@@ -1,0 +1,9 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "contextBeforeGesture": "none",
+  "contextAfterGesture": "running",
+  "sampleRate": 44100,
+  "latencyMs": 10,
+  "verdict": "PASS",
+  "disclosure": "Autoplay policy is relaxed for the harness; a real browser needs the same first gesture, which the UI provides."
+}

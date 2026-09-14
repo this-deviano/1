@@ -395,7 +395,7 @@ function ClipBody({ clip, width }: { clip: Clip; width: number }) {
         {clip.pattern.rows.flatMap((r, ri) =>
           r.steps.map((s, si) =>
             s.on ? (
-              <div key={`${ri}-${si}`} style={{ width: stepW, height: 3, background: "var(--grain-paper)", opacity: 0.7 + (s.vel / 127) * 0.3 }} />
+              <div key={`${ri}-${si}`} data-loom-step={`${ri}-${si}`} style={{ width: stepW, height: 3, background: "var(--grain-paper)", opacity: 0.7 + (s.vel / 127) * 0.3 }} />
             ) : null
           )
         )}

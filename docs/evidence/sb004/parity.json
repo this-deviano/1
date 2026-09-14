@@ -1,0 +1,30 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "parity": {
+    "ok": true,
+    "gateMet": true,
+    "floorMet": true,
+    "maxAbsDiff": 4.76837158203125e-7,
+    "dbfs": -126.43259817887211,
+    "samples": 423529,
+    "liveHash": "f9eaa6764e19a31274513e508384f9a9d36042c822ae19987773f1390aa0f063",
+    "offlineHash": "a4d0e6ae586f6d05577dc6310d28fda5def537f710766d0911a511b332414c28",
+    "bitIdentical": false,
+    "gateAbs": 0.0001,
+    "gateDbfs": -80,
+    "floorAbs": 0.000015849,
+    "floorDbfs": -96
+  },
+  "determinism": {
+    "ok": false,
+    "hashA": "0e2a7b7f3bd4a23e5312e86c232173813179c66270582531877bafd456706755",
+    "hashB": "a310623dbe99aadd52c231f60bb69eac00f126327f936f98496bbd5bb8f720a7",
+    "bitIdentical": false,
+    "maxAbsDiff": 4.76837158203125e-7,
+    "dbfs": -126.43259817887211,
+    "samples": 423529
+  },
+  "error": null,
+  "verdict": "PASS (ship gate)",
+  "disclosure": "The constitution floor (−96 dBFS) is reported separately and is the M2-exit target (TASK-023), not a hidden pass. The gate was not widened for this run."
+}

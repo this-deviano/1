@@ -1,0 +1,32 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "meter": {
+    "notches": [
+      {
+        "bottom": "80%",
+        "label": "−12"
+      },
+      {
+        "bottom": "90%",
+        "label": "−6"
+      }
+    ],
+    "fillHeight": "98.1394%",
+    "holdPresent": true,
+    "holdBottom": "99.6502%",
+    "readout": "-1.1",
+    "readoutFontVariant": "tabular-nums",
+    "masterGainLabels": [
+      "-0.9 dB",
+      "-1.1"
+    ],
+    "barWidthPx": 22
+  },
+  "expectedNotchBottom": {
+    "−12": "80%",
+    "−6": "90%"
+  },
+  "screenshotKB": 87,
+  "verdict": "PASS",
+  "disclosure": "Mapping is −60 dBFS (bottom) → 0 dBFS (top); the two M1 notches are at −12 and −6 dBFS, each carrying its own label. Under the previous LINEAR-amplitude bar the 78 %/90 % notches meant −2.2/−0.9 dBFS — not the loudness they appeared to mark. The full §6.8.3 scale is M2 scope (R-4)."
+}

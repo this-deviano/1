@@ -4,11 +4,84 @@
    No GC churn on the hot path: voices are pooled per fire. */
 
 import type { Clip, Song, Track } from "./model";
-import { TPQ } from "./model";
+import { SEED_DEFAULT, TPQ } from "./model";
+import { seedStream, STREAM_TAGS } from "./seed";
 
 const LOOKAHEAD_S = 0.12;
 const TIMER_MS = 25;
 const METER_HISTORY = 96;
+/* TASK-030: the look-ahead scheduler is the web layer's realtime feed, so its
+   starvation IS this layer's underrun. Ring for the inspector (E-14 spirit). */
+const XRUN_RING = 100;
+const XRUN_GRACE_S = 0.01; // a just-past-due event inside this grace is still fired (matches the live clamp)
+const HOLD_DECAY = 0.995; // peak-hold decay per 25 ms tick — visible, never frozen (P-07)
+
+/* Shared render constants — the LIVE and OFFLINE graphs must be built from
+   the SAME numbers (C-2 lesson: baked constants drift, parity dies). */
+const COMP_THRESHOLD = -6;
+const COMP_RATIO = 4;
+const COMP_ATTACK = 0.003;
+const COMP_RELEASE = 0.12;
+const MASTER_GAIN = 0.9;
+const EXPORT_SR = 44100;
+const PREROLL_S = 0.05; // offline voices start at t+PREROLL; live mapping uses the same offset via startCtxTime
+/* MASTER_GAIN is a real −0.92 dB move on the master bus. It is exported so the
+   Desk can print it instead of the flat "−0.0 dB" it used to show: a gain the
+   user cannot see is a hidden gain move (P-15), and the number must be the
+   number (P-07). */
+export const MASTER_GAIN_DB = 20 * Math.log10(MASTER_GAIN);
+export { EXPORT_SR, PREROLL_S, MASTER_GAIN };
+
+/* ---------- R-9 export peak guard (TASK-051, SB-007-C) ----------
+   The first absolute-audio measurement in the project's history (SB-007-B) found
+   the reference export peaking at +1.65 dBFS with 250 samples/channel strictly
+   over full scale (FND-01). Parity and determinism measure DIFFERENCES between
+   paths and can never see absolute level, so this guard is the missing absolute
+   check. P-15: as-is stays byte-identical and is NEVER silently normalized.
+   P-07: the reported number is the SAMPLE peak (no oversampling ⇒ not a
+   true-peak meter) and is labelled as such wherever a user can see it. */
+export const EXPORT_TARGET_DBFS = -1.0;
+/** Targets offered in the UI choice panel (R-9). */
+export const EXPORT_TARGET_OPTIONS_DBFS = [-1.0, -0.3] as const;
+export type PeakPolicy = "as-is" | "normalize";
+export interface PeakGuardOptions {
+  peakPolicy?: PeakPolicy;
+  /** Only consulted when peakPolicy === "normalize"; default EXPORT_TARGET_DBFS. */
+  targetDbfs?: number;
+}
+export interface RenderWavResult {
+  blob: Blob;
+  policy: PeakPolicy;
+  targetDbfs: number;
+  /** Sample peak magnitude (max |x| across channels) — no oversampling. */
+  samplePeak: number;
+  measuredPeakDbfs: number | null;
+  overFullScale: boolean;
+  /** dB applied when normalizing; exactly 0 for as-is (P-15: no hidden gain move). */
+  scaledByDb: number;
+  /** Non-null when an as-is export is over 0 dBFS — API callers cannot miss it. */
+  warning: string | null;
+}
+
+/** Max |x| across every channel — the guard's measurement (P-07). */
+export function samplePeakOf(buffer: AudioBuffer): number {
+  let peak = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      const a = data[i] < 0 ? -data[i] : data[i];
+      if (a > peak) peak = a;
+    }
+  }
+  return peak;
+}
+
+/** Linear gain that moves `samplePeak` onto `targetDbfs`, preserving the stereo
+    image (one global factor, never per-channel). */
+export function scaleFactorToTarget(peak: number, targetDbfs: number): number {
+  if (!(peak > 0)) return 1;
+  return Math.pow(10, targetDbfs / 20) / peak;
+}
 
 export interface EngineStatus {
   running: boolean;
@@ -17,20 +90,38 @@ export interface EngineStatus {
   underruns: number;
   latencyMs: number;
   clipAvg: number; // 0..1 loudness estimate, master
+  clipHold: number; // 0..1 decaying peak-hold, master (TASK-032 · R-4c)
 }
 
-interface QueuedNote {
-  time: number; // ctx time
-  pitch: number;
-  vel: number; // 1..127
-  dur: number; // seconds
+/* TASK-030 — one underrun event. `wallMs` is honest wall-clock time from the
+   moment it was observed; `playheadTick` is where the transport thought it
+   was. The ring exists so a failure is diagnosable instead of a bare counter
+   (P-07, P-14). */
+export interface XrunEntry {
+  wallMs: number;
+  ctxTime: number;
+  playheadTick: number;
+  cause: "starvation" | "context";
+  detail: string;
+}
+
+/* The Song→audio material map: one model-driven event list (P-05, SB-003 §4).
+   Schedulers (realtime look-ahead, offline fast-forward) only choose WHEN to
+   fire these events and into WHICH context. No scheduler builds its own
+   copy of the mapping — that was the orphan class (C-2/C-5). */
+interface ScheduledEvent {
+  time: number; // seconds on the shared time axis (secPerTick domain)
   track: Track;
+  pitch: number; // transposed + clamped, model-derived
+  vel: number;
+  dur: number; // seconds
+  gainDb: number; // placement.gain override
 }
 
 class LuthierEngine {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
-  private comp: DynamicsCompressorNode | null = null;
+  comp: DynamicsCompressorNode | null = null;
   private analyser: AnalyserNode | null = null;
   private timer: number | null = null;
 
@@ -39,17 +130,30 @@ class LuthierEngine {
   metronome = false;
   cycle = false;
   startTick = 0;
-  private startCtxTime = 0;
+  startCtxTime = 0; // public: test seam for the parity guard's live leg (selftest.ts)
   private scheduledUntilTick = 0;
-  private song: Song | null = null;
+  song: Song | null = null;
   private tickAtLastSchedule = 0;
   private lastLoopWrap = 0;
+  private rng: () => number = seedStream(SEED_DEFAULT, STREAM_TAGS.NOISE); // E-28/E-003: seeded synthesis noise
+
+  /* test seam (selftest.ts only): swap/restore the noise stream and read the
+     internal context nodes for the parity guard's live leg. */
+  rngForTest(): () => number {
+    return this.rng;
+  }
+  setTestRng(r: () => number) {
+    this.rng = r;
+  }
 
   // live capture (§17.4 spirit): last N recorded events
   capture: { pitch: number; vel: number; tick: number }[] = [];
   private countInEnd = 0;
 
-  status: EngineStatus = { running: false, recording: false, playheadTick: 0, underruns: 0, latencyMs: 0, clipAvg: 0 };
+  status: EngineStatus = { running: false, recording: false, playheadTick: 0, underruns: 0, latencyMs: 0, clipAvg: 0, clipHold: 0 };
+  private xrunLog: XrunEntry[] = []; // last XRUN_RING events (TASK-030)
+  private lastStateAnomaly: string | null = null;
+  private lastTickWallMs = 0; // TASK-030(a): wall-clock gap between scheduler passes
   private meterBuf = new Float32Array(256);
   private meterHistory: number[] = [];
   onStatus: ((s: EngineStatus) => void) | null = null;
@@ -58,13 +162,7 @@ class LuthierEngine {
   async ensure(): Promise<AudioContext> {
     if (this.ctx) return this.ctx;
     const ctx = new AudioContext({ latencyHint: "interactive" });
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -6;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.12;
-    const master = ctx.createGain();
-    master.gain.value = 0.9;
+    const { comp, master } = this.buildMasterGraph(ctx);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.55;
@@ -81,8 +179,29 @@ class LuthierEngine {
     return ctx;
   }
 
+  /* The ONE master graph builder — live (ensure), offline (renderBuffer) and
+     the parity guard's live leg all construct their mix bus from this. */
+  buildMasterGraph(ctx: BaseAudioContext): { comp: DynamicsCompressorNode; master: GainNode } {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = COMP_THRESHOLD;
+    comp.ratio.value = COMP_RATIO;
+    comp.attack.value = COMP_ATTACK; // C-2: offline previously omitted attack/release
+    comp.release.value = COMP_RELEASE;
+    const master = ctx.createGain();
+    master.gain.value = MASTER_GAIN;
+    return { comp, master };
+  }
+
   setSong(song: Song) {
     this.song = song;
+  }
+
+  /* The ONE synthesis-noise stream derivation (E-28/E-003), shared by the live
+     path, the offline path and the parity guard. E-006: a second copy of this
+     derivation would be an orphan factory — if the copies drifted, a guard
+     built from one could not catch a defect in the other. */
+  noiseStream(seed: number | undefined): () => number {
+    return seedStream(seed ?? SEED_DEFAULT, STREAM_TAGS.NOISE);
   }
 
   /* ---------- transport (§9.5) ---------- */
@@ -90,12 +209,14 @@ class LuthierEngine {
   async play(fromTick?: number) {
     const ctx = await this.ensure();
     if (ctx.state === "suspended") await ctx.resume();
+    this.rng = this.noiseStream(this.song?.seed); // re-seed per transport start (E-28/E-003: same source tag → same sequence)
     if (this.playing) this.stopScheduling();
     this.playing = true;
     this.startTick = fromTick ?? this.status.playheadTick;
     this.startCtxTime = ctx.currentTime + 0.06;
     this.scheduledUntilTick = this.startTick;
     this.tickAtLastSchedule = this.startTick;
+    this.lastTickWallMs = 0; // TASK-030: do not count the gap between transports
     this.status.running = true;
     this.emit();
     this.tickTimer();
@@ -167,6 +288,21 @@ class LuthierEngine {
     if (!this.playing || !this.ctx || !this.song) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
+
+    /* TASK-030(a), the blunt signal: the scheduler itself did not get to run.
+       The look-ahead window is LOOKAHEAD_S of musical time; if the main thread
+       is blocked past a few timer periods, no look-ahead can save the events
+       that came due inside the gap. Realtime feeding in this layer is the main
+       thread, so that is an underrun by definition. */
+    const wall = performance.now();
+    if (this.lastTickWallMs !== 0 && wall - this.lastTickWallMs > TIMER_MS * 3) {
+      this.recordXrun(
+        "starvation",
+        `scheduler timer starved: ${Math.round(wall - this.lastTickWallMs)} ms between passes (budget ${TIMER_MS} ms, look-ahead ${Math.round(LOOKAHEAD_S * 1000)} ms)`
+      );
+    }
+    this.lastTickWallMs = wall;
+
     const qpm = this.song.qpm;
     const secPerTick = 60 / qpm / TPQ;
     const horizonTick = this.startTick + Math.max(0, now + LOOKAHEAD_S - this.startCtxTime) / secPerTick;
@@ -207,9 +343,42 @@ class LuthierEngine {
       this.meterHistory.push(peak);
       if (this.meterHistory.length > METER_HISTORY) this.meterHistory.shift();
       this.status.clipAvg = peak;
+      // peak-hold (R-4c): decays, so it is a hold and not a frozen bar
+      this.status.clipHold = Math.max(peak, this.status.clipHold * HOLD_DECAY);
+    }
+
+    // TASK-030(b): context state anomalies while the transport is feeding
+    if (ctx.state !== "running") {
+      if (this.lastStateAnomaly !== ctx.state) {
+        this.lastStateAnomaly = ctx.state;
+        this.recordXrun("context", `AudioContext left "running": ${ctx.state}`);
+      }
+    } else {
+      this.lastStateAnomaly = null;
     }
     this.emit();
   };
+
+  /* TASK-030 — record one underrun: counter (loud, never silent) + ring entry.
+     No auto-remediation: we surface it and let the user act (P-14/P-15). */
+  private recordXrun(cause: XrunEntry["cause"], detail: string) {
+    const entry: XrunEntry = {
+      wallMs: Math.round(performance.now()),
+      ctxTime: this.ctx ? Math.round(this.ctx.currentTime * 1000) / 1000 : 0,
+      playheadTick: Math.round(this.status.playheadTick),
+      cause,
+      detail,
+    };
+    this.xrunLog.push(entry);
+    if (this.xrunLog.length > XRUN_RING) this.xrunLog.splice(0, this.xrunLog.length - XRUN_RING);
+    this.status.underruns += 1;
+    this.emit();
+  }
+
+  /** Last ≤100 underrun events, oldest first — the inspector's evidence (P-07). */
+  xruns(): XrunEntry[] {
+    return this.xrunLog.slice();
+  }
 
   private scheduleClicks(from: number, to: number, secPerTick: number) {
     if (!this.ctx || !this.song) return;
@@ -229,204 +398,100 @@ class LuthierEngine {
     }
   }
 
-  private scheduleRange(from: number, to: number, _now: number, secPerTick: number) {
-    const song = this.song;
-    const ctx = this.ctx;
-    if (!song || !ctx) return;
-    const notes: QueuedNote[] = [];
+  /* materialEvents: the ONE model→event mapping. Deterministic, order-independent
+     (stable sort on time, then track id, then pitch). Both schedulers consume this. */
+  materialEvents(song: Song, from: number, to: number, secPerTick: number): ScheduledEvent[] {
+    const out: ScheduledEvent[] = [];
+    const anySolo = song.tracks.some((t) => t.solo);
+    const cycleOn = song.cycle && song.loop !== null; // TASK-013: cycle state is model truth
+    const L = song.loop;
+    const span = L ? Math.max(1, L.end - L.start) : 1;
     for (const p of song.placements) {
-      if (p.mute) continue;
+      if (p.mute) continue; // placement mute honored everywhere (C-7)
       const track = song.tracks.find((t) => t.id === p.track);
       const clip = song.clips.find((c) => c.id === p.clip);
       if (!track || !clip) continue;
       if (track.mute) continue;
-      const anySolo = song.tracks.some((t) => t.solo);
       if (anySolo && !track.solo && track.kind !== "master" && track.kind !== "bus") continue;
 
-      // notes within [from, to) mapped to absolute song ticks
       for (const n of clip.notes) {
-        if (this.cycle && song.loop) {
-          // loop-local phase scheduling: same material every pass
-          const L = song.loop;
-          const span = Math.max(1, L.end - L.start);
+        if (cycleOn && L) {
+          // loop-local phase: material inside the loop region repeats; material outside does not (C-5)
+          if (p.start < L.start || p.start >= L.end) continue;
           const phaseFrom = (((from - L.start) % span) + span) % span;
           const phaseTo = phaseFrom + (to - from);
           const passes = Math.floor((from - L.start) / span);
-          if (n.tick >= phaseFrom && n.tick < phaseTo && p.start >= L.start && p.start < L.end) {
+          if (n.tick >= phaseFrom && n.tick < phaseTo) {
             const abs = L.start + n.tick + passes * span;
-            this.pushNote(notes, abs, n, track, secPerTick, p.transpose, p.gain);
+            this.pushEvent(out, abs, n, track, secPerTick, p.transpose, p.gain);
           }
         } else {
           const absTick = p.start + n.tick;
           if (absTick >= from && absTick < to) {
-            this.pushNote(notes, absTick, n, track, secPerTick, p.transpose, p.gain);
+            this.pushEvent(out, absTick, n, track, secPerTick, p.transpose, p.gain);
           }
         }
       }
     }
-    notes.sort((a, b) => a.time - b.time);
-    for (const n of notes) this.fireVoice(n);
+    out.sort((a, b) =>
+      a.time !== b.time ? a.time - b.time : a.track.id !== b.track.id ? a.track.id.localeCompare(b.track.id) : a.pitch - b.pitch
+    );
+    return out;
   }
 
-  private pushNote(
-    out: QueuedNote[],
+  private pushEvent(
+    out: ScheduledEvent[],
     absTick: number,
     n: { pitch: number; vel: number; len: number },
     track: Track,
     secPerTick: number,
     transpose: number,
-    _gainDb: number
+    gainDb: number
   ) {
-    const ctx = this.ctx!;
-    const time = this.startCtxTime + (absTick - this.startTick) * secPerTick;
-    if (time < ctx.currentTime - 0.01) return;
     const dur = Math.max(0.03, n.len * secPerTick);
     out.push({
-      time,
+      time: absTick * secPerTick, // shared time axis: t_seconds = t_ticks · secPerTick
       pitch: Math.max(0, Math.min(127, n.pitch + transpose)),
       vel: n.vel,
       dur,
       track,
+      gainDb,
     });
   }
 
-  private effectiveClipLength(clip: Clip): number {
+  /* TASK-030(a) — look-ahead starvation. If a material event's scheduled time
+     is already past (beyond the grace window) when the scheduler reaches it, no
+     amount of look-ahead can save it: the queue was empty when the event came
+     due. That is the web analog of an engine underrun (realtime feeding here is
+     the main thread), so it increments the counter and lands in the ring. */
+  private scheduleRange(from: number, to: number, _now: number, secPerTick: number) {
+    const song = this.song;
+    const ctx = this.ctx;
+    if (!song || !ctx) return;
+    const events = this.materialEvents(song, from, to, secPerTick);
+    let missed = 0;
+    let firstMissedTick = 0;
+    for (const ev of events) {
+      const time = this.startCtxTime + (ev.time - this.startTick * secPerTick);
+      if (time < ctx.currentTime - XRUN_GRACE_S) {
+        if (missed === 0) firstMissedTick = Math.round(ev.time / secPerTick);
+        missed += 1;
+        continue;
+      }
+      this.fireVoice({ ...ev, time });
+    }
+    if (missed > 0) {
+      this.recordXrun(
+        "starvation",
+        `${missed} material event(s) came due before the look-ahead window reached them (first at tick ${firstMissedTick})`
+      );
+    }
+  }
+
+  effectiveClipLength(clip: Clip): number {
     if (clip.pattern) return clip.pattern.length * (TPQ / 4) * 1;
     const maxTick = clip.notes.reduce((m, n) => Math.max(m, n.tick + n.len), 0);
     return Math.max(clip.length, maxTick);
-  }
-
-  private fireVoice(n: QueuedNote) {
-    const ctx = this.ctx!;
-    const track = n.track;
-    const gain = dbToGain(track.gain) * (n.vel / 127);
-    const pan = track.pan;
-    const out = ctx.createGain();
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = pan;
-    out.connect(panner);
-    // device chain (honest subset): comp/eq on the voice bus is approximated at mixdown
-    this.applyDevices(out, track);
-    panner.connect(this.comp!);
-
-    switch (track.instrument) {
-      case "drums":
-        this.drumVoice(out, n.pitch, n.time, gain, n.vel);
-        break;
-      case "bass":
-        this.toneVoice(out, n, gain, "sawtooth", 0.35, 480);
-        break;
-      case "pluck":
-        this.toneVoice(out, n, gain, "triangle", 0.25, 2600);
-        break;
-      default:
-        this.toneVoice(out, n, gain, "sine", 0.4, 3200);
-    }
-  }
-
-  private applyDevices(_input: GainNode, _track: Track) {
-    /* Devices (§13) shape gain dynamics at the strip level in this MVP;
-       per-device Web Audio graphs land with the Desk device panels (M2 parity). */
-  }
-
-  /* ---------- voices ---------- */
-
-  private drumVoice(out: GainNode, pitch: number, t: number, gain: number, vel: number) {
-    const ctx = this.ctx!;
-    if (pitch === 36 || pitch === 35) {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.frequency.setValueAtTime(150, t);
-      osc.frequency.exponentialRampToValueAtTime(42, t + 0.11);
-      g.gain.setValueAtTime(gain * 1.4, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
-      osc.connect(g);
-      g.connect(out);
-      osc.start(t);
-      osc.stop(t + 0.45);
-      // click transient
-      this.noiseHit(out, t, gain * 0.35, 0.012, 1800);
-    } else if (pitch === 38 || pitch === 40) {
-      this.noiseHit(out, t, gain * 0.9, 0.16, 1800, 240);
-      this.toneBlip(out, t, 190, gain * 0.5, 0.09);
-    } else if (pitch === 39) {
-      this.noiseHit(out, t, gain * 0.8, 0.12, 1400, 900);
-    } else if (pitch === 42 || pitch === 44) {
-      this.noiseHit(out, t, gain * 0.45, pitch === 44 ? 0.32 : 0.05, 7000, 1200);
-    } else if (pitch === 46) {
-      this.noiseHit(out, t, gain * 0.4, 0.34, 6500, 1400);
-    } else if (pitch === 51) {
-      this.noiseHit(out, t, gain * 0.3, 0.5, 5200, 2200);
-    } else {
-      this.toneBlip(out, t, midiHz(pitch), gain * 0.5, 0.2);
-      void vel;
-    }
-  }
-
-  private toneVoice(out: GainNode, n: QueuedNote, gain: number, type: OscillatorType, attack: number, cutoff: number) {
-    const ctx = this.ctx!;
-    const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const g = ctx.createGain();
-    const f = ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = cutoff;
-    f.Q.value = 0.8;
-    osc.type = type;
-    osc2.type = type;
-    osc.frequency.value = midiHz(n.pitch);
-    osc2.frequency.value = midiHz(n.pitch) * 2.003; // gentle octave shimmer
-    const t = n.time;
-    const sus = Math.max(0.06, n.dur);
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(gain * 0.5, t + attack);
-    g.gain.setValueAtTime(gain * 0.5, t + sus * 0.7);
-    g.gain.exponentialRampToValueAtTime(0.001, t + sus + 0.08);
-    osc.connect(f);
-    osc2.connect(f);
-    f.connect(g);
-    g.connect(out);
-    osc.start(t);
-    osc2.start(t);
-    osc.stop(t + sus + 0.12);
-    osc2.stop(t + sus + 0.12);
-  }
-
-  private noiseHit(out: GainNode, t: number, gain: number, dur: number, hp: number, lp = 12000) {
-    const ctx = this.ctx!;
-    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const hpF = ctx.createBiquadFilter();
-    hpF.type = "highpass";
-    hpF.frequency.value = hp;
-    const lpF = ctx.createBiquadFilter();
-    lpF.type = "lowpass";
-    lpF.frequency.value = lp;
-    const g = ctx.createGain();
-    g.gain.value = gain;
-    src.connect(hpF);
-    hpF.connect(lpF);
-    lpF.connect(g);
-    g.connect(out);
-    src.start(t);
-  }
-
-  private toneBlip(out: GainNode, t: number, hz: number, gain: number, dur: number) {
-    const ctx = this.ctx!;
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.frequency.setValueAtTime(hz, t);
-    osc.frequency.exponentialRampToValueAtTime(hz * 0.6, t + dur);
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g);
-    g.connect(out);
-    osc.start(t);
-    osc.stop(t + dur + 0.02);
   }
 
   private click(t: number, hz: number, gain: number) {
@@ -459,7 +524,7 @@ class LuthierEngine {
         panner.pan.value = track.pan;
         out.connect(panner);
         panner.connect(this.comp!);
-        const n: QueuedNote = { time: t, pitch, vel, dur: 0.35, track };
+        const n: ScheduledEvent = { time: t, pitch, vel, dur: 0.35, track, gainDb: 0 }; // performance input: no placement override exists
         const gain = dbToGain(track.gain) * (vel / 127);
         if (track.instrument === "drums") this.drumVoice(out, pitch, t, gain, vel);
         else if (track.instrument === "bass") this.toneVoice(out, n, gain, "sawtooth", 0.02, 480);
@@ -474,57 +539,113 @@ class LuthierEngine {
     })();
   }
 
-  /* ---------- offline render (§10.10) ---------- */
+  /* ---------- offline render (§10.10): model-driven fast-forward ----------
+     The offline scheduler consumes materialEvents and dispatches through the
+     SAME shared voices as the live path. Only the timing source differs.
+     Live≈offline caveat: live voices schedule relative to startCtxTime which
+     lands ≥50 ms in the future; the export starts voices at exactly t+PREROLL
+     (both give the same preroll for a play from 0 — the guard measures the
+     residual envelope-attack difference, not a musical one). */
 
-  async renderWav(song: Song, tailSeconds = 1.5): Promise<Blob> {
-    const sr = 44100;
+  async renderBuffer(song: Song, tailSeconds: number): Promise<AudioBuffer> {
     const lenTicks = song.placements.reduce((m, p) => {
       const clip = song.clips.find((c) => c.id === p.clip);
       if (!clip) return m;
       const l = p.start + this.effectiveClipLength(clip);
       return Math.max(m, l);
-    }, song.loop?.end ?? 0);
+    }, song.cycle && song.loop ? song.loop.end : 0);
     const secPerTick = 60 / song.qpm / TPQ;
     const total = Math.max(1, lenTicks * secPerTick + tailSeconds);
-    const ctx = new OfflineAudioContext(2, Math.ceil(total * sr), sr);
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -6;
-    comp.ratio.value = 4;
-    const master = ctx.createGain();
-    master.gain.value = 0.9;
+    const ctx = new OfflineAudioContext(2, Math.ceil(total * EXPORT_SR), EXPORT_SR);
+    this.rng = this.noiseStream(song.seed); // deterministic offline render (E-28/E-003, same NOISE source tag)
+    // TASK-015 CORRECTION (found by the SB-004 harness): the offline bus must run
+    // the SAME master chain as live — comp → master(MASTER_GAIN) → destination.
+    // The previous `const { comp }` dropped the master gain entirely, so exports
+    // came out +0.92 dB hotter than what the user hears (P-15 violation).
+    const { comp, master } = this.buildMasterGraph(ctx);
     comp.connect(master);
     master.connect(ctx.destination);
 
-    const renderTrack = (track: Track, note: { pitch: number; vel: number; len: number }, absTick: number, transpose: number) => {
-      const out = ctx.createGain();
-      const panner = ctx.createStereoPanner();
-      panner.pan.value = track.pan;
-      out.connect(panner);
-      panner.connect(comp);
-      const gain = dbToGain(track.gain) * (note.vel / 127);
-      const time = absTick * secPerTick + 0.05;
-      const qn: QueuedNote = { time, pitch: Math.min(127, note.pitch + transpose), vel: note.vel, dur: Math.max(0.03, note.len * secPerTick), track };
-      if (track.instrument === "drums") this.renderDrum(ctx, out, qn.pitch, time, gain);
-      else if (track.instrument === "bass") this.renderTone(ctx, out, qn, gain, "sawtooth", 480);
-      else if (track.instrument === "pluck") this.renderTone(ctx, out, qn, gain, "triangle", 2600);
-      else this.renderTone(ctx, out, qn, gain, "sine", 3200);
-    };
-
-    for (const p of song.placements) {
-      if (p.mute) continue;
-      const track = song.tracks.find((t) => t.id === p.track);
-      const clip = song.clips.find((c) => c.id === p.clip);
-      if (!track || !clip || track.mute) continue;
-      for (const n of clip.notes) {
-        renderTrack(track, n, p.start + n.tick, p.transpose);
-      }
+    // fast-forward: fire every model event from the shared mapping at its absolute time
+    const events = this.materialEvents(song, 0, lenTicks, secPerTick);
+    for (const ev of events) {
+      this.fireVoice({ ...ev, time: ev.time + PREROLL_S }, ctx, comp);
     }
-
-    const buf = await ctx.startRendering();
-    return wavBlob(buf);
+    return ctx.startRendering();
   }
 
-  private renderDrum(ctx: BaseAudioContext, out: GainNode, pitch: number, t: number, gain: number) {
+  /* R-9 — the export path, with the peak guard. The as-is branch is byte-identical
+     to the pre-guard output: it is `wavBlob(await renderBuffer(...))`, untouched.
+     Nothing is ever silently normalized; a hot as-is export returns the bytes the
+     user asked for AND a warning the caller cannot miss (P-14/P-15). */
+  async renderWav(song: Song, tailSeconds = 1.5, opts: PeakGuardOptions = {}): Promise<RenderWavResult> {
+    const buf = await this.renderBuffer(song, tailSeconds);
+    return this.encodeWithPeakGuard(buf, opts);
+  }
+
+  /** Encode an already-rendered buffer under the peak guard. The UI's inline
+      choice panel renders ONCE and reuses the buffer, so the panel and the
+      programmatic API share this single code path (E-006: no second copy). */
+  encodeWithPeakGuard(buf: AudioBuffer, opts: PeakGuardOptions = {}): RenderWavResult {
+    const policy: PeakPolicy = opts.peakPolicy ?? "as-is";
+    const targetDbfs = opts.targetDbfs ?? EXPORT_TARGET_DBFS;
+    const samplePeak = samplePeakOf(buf);
+    const measuredPeakDbfs = samplePeak > 0 ? 20 * Math.log10(samplePeak) : null;
+    const overFullScale = samplePeak > 1.0;
+    let scaledByDb = 0;
+    let blob: Blob;
+    if (policy === "normalize" && samplePeak > 0) {
+      const factor = scaleFactorToTarget(samplePeak, targetDbfs);
+      scaledByDb = 20 * Math.log10(factor);
+      blob = wavBlobScaled(buf, factor);
+    } else {
+      blob = wavBlob(buf);
+    }
+    const warning =
+      policy === "as-is" && overFullScale && measuredPeakDbfs !== null
+        ? `Export sample peak is ${samplePeak.toFixed(6)} (${measuredPeakDbfs >= 0 ? "+" : ""}${measuredPeakDbfs.toFixed(2)} dBFS), over 0 dBFS. It will clip on any integer DAC; scale it or export as-is knowingly.`
+        : null;
+    return { blob, policy, targetDbfs, samplePeak, measuredPeakDbfs, overFullScale, scaledByDb, warning };
+  }
+
+  /* ---------- shared voices (BaseAudioContext) — the ONE voice set ---------- */
+
+  fireVoice(n: ScheduledEvent, ctxOverride?: BaseAudioContext, destOverride?: AudioNode) {
+    const ctx = (ctxOverride ?? this.ctx)!;
+    const track = n.track;
+    const gain = dbToGain(track.gain) * (n.vel / 127) * dbToGain(n.gainDb); // track strip × velocity × placement override (P-15: no hidden moves)
+    const pan = track.pan;
+    const out = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+    out.connect(panner);
+    // device chain (honest subset): comp/eq on the voice bus is approximated at mixdown
+    this.applyDevices(out, track);
+    panner.connect(destOverride ?? this.comp!);
+
+    switch (track.instrument) {
+      case "drums":
+        this.drumVoice(out, n.pitch, n.time, gain, n.vel, ctx);
+        break;
+      case "bass":
+        this.toneVoice(out, n, gain, "sawtooth", 0.35, 480, ctx);
+        break;
+      case "pluck":
+        this.toneVoice(out, n, gain, "triangle", 0.25, 2600, ctx);
+        break;
+      default:
+        this.toneVoice(out, n, gain, "sine", 0.4, 3200, ctx);
+    }
+  }
+
+  private applyDevices(_input: GainNode, _track: Track) {
+    /* Devices (§13) shape gain dynamics at the strip level in this MVP;
+       per-device Web Audio graphs land with the Desk device panels (M2 parity). */
+  }
+
+  /* ---------- voices ---------- */
+
+  private drumVoice(out: GainNode, pitch: number, t: number, gain: number, vel: number, ctx: BaseAudioContext = this.ctx!) {
     if (pitch === 36 || pitch === 35) {
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
@@ -536,37 +657,41 @@ class LuthierEngine {
       g.connect(out);
       osc.start(t);
       osc.stop(t + 0.45);
+      // click transient
+      this.noiseHit(out, t, gain * 0.35, 0.012, 1800, ctx);
     } else if (pitch === 38 || pitch === 40) {
-      this.staticNoise(ctx, out, t, gain * 0.9, 0.16, 1800, 240);
-      this.renderBlip(ctx, out, t, 190, gain * 0.5, 0.09);
+      this.noiseHit(out, t, gain * 0.9, 0.16, 1800, ctx, 240);
+      this.toneBlip(out, t, 190, gain * 0.5, 0.09, ctx);
     } else if (pitch === 39) {
-      this.staticNoise(ctx, out, t, gain * 0.8, 0.12, 1400, 900);
+      this.noiseHit(out, t, gain * 0.8, 0.12, 1400, ctx, 900);
     } else if (pitch === 42 || pitch === 44) {
-      this.staticNoise(ctx, out, t, gain * 0.45, pitch === 44 ? 0.32 : 0.05, 7000, 1200);
+      this.noiseHit(out, t, gain * 0.45, pitch === 44 ? 0.32 : 0.05, 7000, ctx, 1200);
     } else if (pitch === 46) {
-      this.staticNoise(ctx, out, t, gain * 0.4, 0.34, 6500, 1400);
+      this.noiseHit(out, t, gain * 0.4, 0.34, 6500, ctx, 1400);
     } else if (pitch === 51) {
-      this.staticNoise(ctx, out, t, gain * 0.3, 0.5, 5200, 2200);
+      this.noiseHit(out, t, gain * 0.3, 0.5, 5200, ctx, 2200);
     } else {
-      this.renderBlip(ctx, out, t, midiHz(pitch), gain * 0.5, 0.2);
+      this.toneBlip(out, t, midiHz(pitch), gain * 0.5, 0.2, ctx);
+      void vel;
     }
   }
 
-  private renderTone(ctx: BaseAudioContext, out: GainNode, n: QueuedNote, gain: number, type: OscillatorType, cutoff: number) {
+  private toneVoice(out: GainNode, n: ScheduledEvent, gain: number, type: OscillatorType, attack: number, cutoff: number, ctx: BaseAudioContext = this.ctx!) {
     const osc = ctx.createOscillator();
     const osc2 = ctx.createOscillator();
     const g = ctx.createGain();
     const f = ctx.createBiquadFilter();
     f.type = "lowpass";
     f.frequency.value = cutoff;
+    f.Q.value = 0.8;
     osc.type = type;
     osc2.type = type;
     osc.frequency.value = midiHz(n.pitch);
-    osc2.frequency.value = midiHz(n.pitch) * 2.003;
+    osc2.frequency.value = midiHz(n.pitch) * 2.003; // gentle octave shimmer
     const t = n.time;
     const sus = Math.max(0.06, n.dur);
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(gain * 0.5, t + 0.02);
+    g.gain.linearRampToValueAtTime(gain * 0.5, t + attack);
     g.gain.setValueAtTime(gain * 0.5, t + sus * 0.7);
     g.gain.exponentialRampToValueAtTime(0.001, t + sus + 0.08);
     osc.connect(f);
@@ -579,24 +704,11 @@ class LuthierEngine {
     osc2.stop(t + sus + 0.12);
   }
 
-  private renderBlip(ctx: BaseAudioContext, out: GainNode, t: number, hz: number, gain: number, dur: number) {
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.frequency.setValueAtTime(hz, t);
-    osc.frequency.exponentialRampToValueAtTime(hz * 0.6, t + dur);
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g);
-    g.connect(out);
-    osc.start(t);
-    osc.stop(t + dur + 0.02);
-  }
-
-  private staticNoise(ctx: BaseAudioContext, out: GainNode, t: number, gain: number, dur: number, hp: number, lp: number) {
+  private noiseHit(out: GainNode, t: number, gain: number, dur: number, hp: number, ctx: BaseAudioContext = this.ctx!, lp = 12000) {
     const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    for (let i = 0; i < len; i++) data[i] = (this.rng() * 2 - 1) * (1 - i / len);
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const hpF = ctx.createBiquadFilter();
@@ -614,6 +726,19 @@ class LuthierEngine {
     src.start(t);
   }
 
+  private toneBlip(out: GainNode, t: number, hz: number, gain: number, dur: number, ctx: BaseAudioContext = this.ctx!) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.frequency.setValueAtTime(hz, t);
+    osc.frequency.exponentialRampToValueAtTime(hz * 0.6, t + dur);
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g);
+    g.connect(out);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+
   meterWave(): number[] {
     return this.meterHistory;
   }
@@ -627,7 +752,9 @@ function midiHz(p: number): number {
   return 440 * Math.pow(2, (p - 69) / 12);
 }
 
-function wavBlob(buffer: AudioBuffer): Blob {
+/* 32-bit-float WAV encoder. `scale` is the ONLY difference between an as-is and
+   a normalized export, so the two paths cannot drift (E-006). */
+function encodeWav(buffer: AudioBuffer, scale: number): Blob {
   const numCh = buffer.numberOfChannels;
   const len = buffer.length;
   const bytes = 44 + len * numCh * 4;
@@ -654,11 +781,21 @@ function wavBlob(buffer: AudioBuffer): Blob {
   for (let c = 0; c < numCh; c++) chans.push(buffer.getChannelData(c));
   for (let i = 0; i < len; i++) {
     for (let c = 0; c < numCh; c++) {
-      view.setFloat32(off, chans[c][i], true);
+      view.setFloat32(off, chans[c][i] * scale, true);
       off += 4;
     }
   }
   return new Blob([ab], { type: "audio/wav" });
+}
+
+/** The un-guarded encoder — byte-identical to the pre-R-9 export path. */
+export function wavBlob(buffer: AudioBuffer): Blob {
+  return encodeWav(buffer, 1);
+}
+
+/** Apply one global linear gain and encode (R-9 normalize). */
+export function wavBlobScaled(buffer: AudioBuffer, factor: number): Blob {
+  return encodeWav(buffer, factor);
 }
 
 export const engine = new LuthierEngine();

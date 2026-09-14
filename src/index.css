@@ -1079,9 +1079,12 @@ ol {
   background: var(--grain-ink-40);
 }
 
+/* §6.8.3 meter — M1 interim per R-4 (SB-005). dB-referenced (−60 → 0 dBFS),
+   LABELLED notches at true dB positions, separate peak-hold line. Gradients
+   remain forbidden in functional UI (G-12). */
 .grain-meter {
   position: relative;
-  width: 10px;
+  width: 22px;
   background: var(--grain-paper-sunken);
   border: 1px solid var(--grain-line);
   overflow: hidden;
@@ -1091,13 +1094,47 @@ ol {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(
-    to top,
-    var(--grain-ok) 0%,
-    var(--grain-ok) 55%,
-    var(--grain-amber) 78%,
-    var(--grain-signal) 100%
-  );
+  background: var(--grain-ok); /* solid fill — gradients are forbidden in functional UI (G-12) */
+  z-index: 0;
+}
+/* Peak-hold (R-4c): a decaying line, never frozen — the bar stays honest (P-07). */
+.grain-meter .hold {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grain-ink);
+  z-index: 2;
+}
+/* Notches at true dB positions, each carrying its own value (R-4a): an
+   unlabelled notch cannot be read as a loudness, so it is decoration. */
+.grain-meter .notch {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grain-ink-40);
+  z-index: 3;
+}
+.grain-meter .notch i {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  font: 400 8px/8px var(--grain-font-mono);
+  font-style: normal;
+  color: var(--grain-ink-64);
+  letter-spacing: -0.2px;
+}
+.grain-meter-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.meter-peak {
+  font-variant-numeric: tabular-nums;
+  color: var(--grain-ink-64);
+  white-space: nowrap;
 }
 
 /* ---------- Overlays ---------- */
@@ -1250,6 +1287,12 @@ ol {
 .inline-error .body {
   color: var(--grain-ink-64);
   font-size: 12px;
+}
+
+/* Mic surface (TASK-007) — inline, non-modal, same panel language as .inline-error */
+.mic-panel {
+  font: var(--grain-type-small);
+  color: var(--grain-ink-88);
 }
 
 /* Splash (§6.11.1) */

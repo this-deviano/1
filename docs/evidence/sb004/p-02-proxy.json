@@ -1,0 +1,37 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "elapsedMsFromFirstGestureToClipCommitted": 3875,
+  "target_ms": 60000,
+  "midiTakeNotes": 4,
+  "audioClip": {
+    "sha": "1a55996ed66d7a9e10aaaec9123441bcf84827a3fe57c0cc76ac075b0be96dc5",
+    "bytes": 132784,
+    "durationS": 0.7524943310657597,
+    "sampleRate": 44100,
+    "channels": 1
+  },
+  "audioProbe": {
+    "ok": true,
+    "probe": {
+      "bytes": 132784,
+      "channels": 1,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "frames": 33185,
+      "durationS": 0.7524943310657597,
+      "peak": 1,
+      "nonZeroSamples": 777,
+      "sha256": "1a55996ed66d7a9e10aaaec9123441bcf84827a3fe57c0cc76ac075b0be96dc5"
+    }
+  },
+  "placementTrack": "trk_mtz6vawx2",
+  "micArmedAtEnd": false,
+  "lastTake": {
+    "sha": "1a55996ed66d7a9e10aaaec9123441bcf84827a3fe57c0cc76ac075b0be96dc5",
+    "bytes": 132784,
+    "durationS": 0.7524943310657597,
+    "peak": 1
+  },
+  "verdict": "PASS",
+  "disclosure": "PROXY: scripted keys, not a human, and the microphone is Chromium's fake device (a synthetic tone). The number is an upper-bound-ish proxy for P-02, not the human stopwatch (HV-3). Scripted headless timing is not comparable to human feel — the maintainer still owns the final stopwatch."
+}

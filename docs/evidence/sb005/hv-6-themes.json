@@ -1,0 +1,9 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "themeState": "night",
+  "dataThemeAttribute": "night",
+  "dayshiftKB": 79,
+  "nightshiftKB": 79,
+  "verdict": "PASS",
+  "disclosure": "Agreeing with AG-04: the theme system is a token swap on :root[data-theme]; no component branches on theme."
+}

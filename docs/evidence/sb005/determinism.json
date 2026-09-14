@@ -1,0 +1,39 @@
+{
+  "proxy": "PROXY — headless Chromium (chrome-headless-shell 153), production bundle via `vite preview`.",
+  "determinism": {
+    "ok": true,
+    "hashA": "eba30c0a6b993ad532d51451a3023217a11339d18002ee1e9c0f952756ee6dfd",
+    "hashB": "17d97c1154e6f746dd34b3f8a2df746216965afc46c3a835e08c47778d08d2eb",
+    "bitIdentical": false,
+    "maxAbsDiff": 5.364418029785156e-7,
+    "dbfs": -125.40954772992448,
+    "samples": 423529,
+    "capAbs": 0.000001,
+    "capDbfs": -120,
+    "capMet": true,
+    "amended": true
+  },
+  "fourRenderDiagnostic": {
+    "hashes": [
+      "cec91dc10e16d910b1ae173020eebaaa1d1be34e857482706a010205824d1c83",
+      "e8a72431fa91bc825bf913b601399f50b7235082866292702e86d3da7fe347b1",
+      "047f6bd2f30ab68d06a71f25a8448e91fa1492403e4e69df51691b7a637edab6",
+      "ff5ae816c3eab77df838cbd27a0a7789e014662a1473282ef079b99847dbf71b"
+    ],
+    "maxDiffVsFirst": [
+      0,
+      4.76837158203125e-7,
+      4.76837158203125e-7,
+      4.172325134277344e-7
+    ],
+    "sameAsFirst": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "verdict": "PASS (amended-green: platform WebAudio noise within cap)",
+  "amendedRule": "AMM-003 Branch A, ratified SB-005 after the TASK-026 bisect. Preview-layer E-28 = byte-identical for app-controlled paths; for a render that passes through native WebAudio nodes, determinism = max|Δ| ≤ the per-browser cap. Root cause (measured, not inferred): the divergence is introduced by Chromium's render scheduling and GROWS WITH GRAPH SIZE — bit-stable at ≤16 voices, −150 dBFS @64, −84 dBFS @256, −65 dBFS @1024 in a synthetic ladder with no app state and no PRNG (docs/evidence/sb005/).",
+  "disclosure": "Scope is ADR-0002: same build, same context configuration, one Song, two in-memory renders. BOTH behaviours are recorded — bit-identity AND measured-vs-cap — and the measured value with both hashes is always present. The 4-render diagnostic separates warm-up from true nondeterminism."
+}

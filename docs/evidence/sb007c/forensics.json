@@ -1,0 +1,687 @@
+{
+  "proxy": "PROXY — headless Chromium via playwright.launch, production bundle served by `vite preview`; the microphone is Chromium's fake media device (a synthetic tone), not hardware. The export is the app's own `engine.renderWav`; the take is the app's own trimmed WAV from OPFS media/.",
+  "thresholds": {
+    "maxSilentDc": 0.0001,
+    "takePeakMin": 0.98,
+    "takePeakMax": 1,
+    "takeDurationToleranceMs": 150,
+    "maxTrimOffsetMs": 50,
+    "normalizeToleranceDb": 0.1,
+    "latticeNullRate": 0.001,
+    "latticePoissonConfidence": 0.999,
+    "latticeAbsoluteFloor": 0.25
+  },
+  "referenceSongExport": {
+    "label": "reference-song-export",
+    "fileBytes": 3388276,
+    "durationS": 9.603832199546485,
+    "frames": 423529,
+    "header": {
+      "fmtTag": 3,
+      "fmtTagName": "IEEE float",
+      "channels": 2,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "blockAlignDeclared": 8,
+      "blockAlignDerived": 8,
+      "byteRateDeclared": 352800,
+      "byteRateDerived": 352800,
+      "declaredFieldsConsistent": true,
+      "dataBytesDeclared": 3388232,
+      "dataBytesAvailable": 3388232,
+      "dataFitsFile": true
+    },
+    "perChannel": [
+      {
+        "index": 0,
+        "dcOffset": 0.00012032131220825337,
+        "dcDbfs": -78.39314880737314,
+        "dcSegments": [
+          0.0007076603,
+          0.0003696074,
+          -0.000217126,
+          -0.0002259991,
+          0.0002999369,
+          -0.0001030436,
+          0.0001315368,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0007076603278724552,
+        "dcSegmentsMatchingOverallSign": 4,
+        "dcConcentration": 5.881421295070565,
+        "dcSilent": {
+          "windowMs": 50,
+          "hopMs": 25,
+          "windowCount": 382,
+          "silentWindowCount": 53,
+          "informative": true,
+          "maxSilentAbsDc": 0.00006322042318371806,
+          "maxSilentDcDbfs": -83.98285202828421,
+          "maxSilentRmsDbfs": -61.45723127643138,
+          "sampleSilentMeans": [
+            0,
+            -0.00006322042,
+            -0.00002313673,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "truePeak": 1.2086318731307983,
+        "truePeakDbfs": 1.6458808590183271,
+        "clippedSamples": 250,
+        "samplesOverFullScale": 250,
+        "maxBoundaryDelta": 0.068854421377182,
+        "maxBoundaryDeltaDbfs": -23.24136333964134,
+        "interiorP999": 0.059408366680145264,
+        "interiorP999Dbfs": -24.523047751170523,
+        "boundaryCount": 3309,
+        "outlierBoundaryCount": 5,
+        "outlierBoundaries": [
+          29184,
+          31872,
+          36352,
+          50944,
+          58752
+        ],
+        "legacyLatticeVerdict": "OUTLIER",
+        "latticeGate": {
+          "informative": true,
+          "exceedanceCount": 5,
+          "poissonLambda": 3.309,
+          "poissonAllowed": 10,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": true,
+          "verdict": "PASS"
+        }
+      },
+      {
+        "index": 1,
+        "dcOffset": 0.00012032131220825337,
+        "dcDbfs": -78.39314880737314,
+        "dcSegments": [
+          0.0007076603,
+          0.0003696074,
+          -0.000217126,
+          -0.0002259991,
+          0.0002999369,
+          -0.0001030436,
+          0.0001315368,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0007076603278724552,
+        "dcSegmentsMatchingOverallSign": 4,
+        "dcConcentration": 5.881421295070565,
+        "dcSilent": {
+          "windowMs": 50,
+          "hopMs": 25,
+          "windowCount": 382,
+          "silentWindowCount": 53,
+          "informative": true,
+          "maxSilentAbsDc": 0.00006322042318371806,
+          "maxSilentDcDbfs": -83.98285202828421,
+          "maxSilentRmsDbfs": -61.45723127643138,
+          "sampleSilentMeans": [
+            0,
+            -0.00006322042,
+            -0.00002313673,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "truePeak": 1.2086318731307983,
+        "truePeakDbfs": 1.6458808590183271,
+        "clippedSamples": 250,
+        "samplesOverFullScale": 250,
+        "maxBoundaryDelta": 0.068854421377182,
+        "maxBoundaryDeltaDbfs": -23.24136333964134,
+        "interiorP999": 0.059408366680145264,
+        "interiorP999Dbfs": -24.523047751170523,
+        "boundaryCount": 3309,
+        "outlierBoundaryCount": 5,
+        "outlierBoundaries": [
+          29184,
+          31872,
+          36352,
+          50944,
+          58752
+        ],
+        "legacyLatticeVerdict": "OUTLIER",
+        "latticeGate": {
+          "informative": true,
+          "exceedanceCount": 5,
+          "poissonLambda": 3.309,
+          "poissonAllowed": 10,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": true,
+          "verdict": "PASS"
+        }
+      }
+    ],
+    "trim": {
+      "thresholdDbfs": -60,
+      "expectedMs": 50,
+      "firstAudibleMs": 55.98639455782313,
+      "offsetMs": 5.986394557823132,
+      "leadingSilenceMs": 55.98639455782313,
+      "trailingSilenceMs": 1324.467120181406
+    }
+  },
+  "normalizedExport": {
+    "label": "reference-song-export",
+    "fileBytes": 3388276,
+    "durationS": 9.603832199546485,
+    "frames": 423529,
+    "header": {
+      "fmtTag": 3,
+      "fmtTagName": "IEEE float",
+      "channels": 2,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "blockAlignDeclared": 8,
+      "blockAlignDerived": 8,
+      "byteRateDeclared": 352800,
+      "byteRateDerived": 352800,
+      "declaredFieldsConsistent": true,
+      "dataBytesDeclared": 3388232,
+      "dataBytesAvailable": 3388232,
+      "dataFitsFile": true
+    },
+    "perChannel": [
+      {
+        "index": 0,
+        "dcOffset": 0.00008872548302173612,
+        "dcDbfs": -81.03903255347527,
+        "dcSegments": [
+          0.0005218321,
+          0.0002725502,
+          -0.0001601097,
+          -0.0001666528,
+          0.0002211748,
+          -0.00007598497,
+          0.0000969959,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0005218321010354736,
+        "dcSegmentsMatchingOverallSign": 4,
+        "dcConcentration": 5.881423050778255,
+        "dcSilent": {
+          "windowMs": 50,
+          "hopMs": 25,
+          "windowCount": 382,
+          "silentWindowCount": 55,
+          "informative": true,
+          "maxSilentAbsDc": 0.00004661903496694703,
+          "maxSilentDcDbfs": -86.62873441590884,
+          "maxSilentRmsDbfs": -60.21587430544133,
+          "sampleSilentMeans": [
+            0,
+            0.00001113158,
+            0.000008905601,
+            -0.00004661903,
+            -0.00001706113,
+            0,
+            0,
+            0
+          ]
+        },
+        "truePeak": 0.8912509083747864,
+        "truePeakDbfs": -1.0000002900227403,
+        "clippedSamples": 0,
+        "samplesOverFullScale": 0,
+        "maxBoundaryDelta": 0.05077354609966278,
+        "maxBoundaryDeltaDbfs": -25.88725007532534,
+        "interiorP999": 0.04380802810192108,
+        "interiorP999Dbfs": -27.168925899106277,
+        "boundaryCount": 3309,
+        "outlierBoundaryCount": 5,
+        "outlierBoundaries": [
+          29184,
+          31872,
+          36352,
+          50944,
+          58752
+        ],
+        "legacyLatticeVerdict": "OUTLIER",
+        "latticeGate": {
+          "informative": true,
+          "exceedanceCount": 5,
+          "poissonLambda": 3.309,
+          "poissonAllowed": 10,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": true,
+          "verdict": "PASS"
+        }
+      },
+      {
+        "index": 1,
+        "dcOffset": 0.00008872548302173612,
+        "dcDbfs": -81.03903255347527,
+        "dcSegments": [
+          0.0005218321,
+          0.0002725502,
+          -0.0001601097,
+          -0.0001666528,
+          0.0002211748,
+          -0.00007598497,
+          0.0000969959,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0005218321010354736,
+        "dcSegmentsMatchingOverallSign": 4,
+        "dcConcentration": 5.881423050778255,
+        "dcSilent": {
+          "windowMs": 50,
+          "hopMs": 25,
+          "windowCount": 382,
+          "silentWindowCount": 55,
+          "informative": true,
+          "maxSilentAbsDc": 0.00004661903496694703,
+          "maxSilentDcDbfs": -86.62873441590884,
+          "maxSilentRmsDbfs": -60.21587430544133,
+          "sampleSilentMeans": [
+            0,
+            0.00001113158,
+            0.000008905601,
+            -0.00004661903,
+            -0.00001706113,
+            0,
+            0,
+            0
+          ]
+        },
+        "truePeak": 0.8912509083747864,
+        "truePeakDbfs": -1.0000002900227403,
+        "clippedSamples": 0,
+        "samplesOverFullScale": 0,
+        "maxBoundaryDelta": 0.05077354609966278,
+        "maxBoundaryDeltaDbfs": -25.88725007532534,
+        "interiorP999": 0.04380802810192108,
+        "interiorP999Dbfs": -27.168925899106277,
+        "boundaryCount": 3309,
+        "outlierBoundaryCount": 5,
+        "outlierBoundaries": [
+          29184,
+          31872,
+          36352,
+          50944,
+          58752
+        ],
+        "legacyLatticeVerdict": "OUTLIER",
+        "latticeGate": {
+          "informative": true,
+          "exceedanceCount": 5,
+          "poissonLambda": 3.309,
+          "poissonAllowed": 10,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": true,
+          "verdict": "PASS"
+        }
+      }
+    ],
+    "trim": {
+      "thresholdDbfs": -60,
+      "expectedMs": 50,
+      "firstAudibleMs": 55.98639455782313,
+      "offsetMs": 5.986394557823132,
+      "leadingSilenceMs": 55.98639455782313,
+      "trailingSilenceMs": 1324.5578231292516
+    }
+  },
+  "fakeToneMicTake": {
+    "label": "media/02c91f1ff730.wav",
+    "fileBytes": 149168,
+    "durationS": 0.8453741496598639,
+    "frames": 37281,
+    "header": {
+      "fmtTag": 3,
+      "fmtTagName": "IEEE float",
+      "channels": 1,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "blockAlignDeclared": 4,
+      "blockAlignDerived": 4,
+      "byteRateDeclared": 176400,
+      "byteRateDerived": 176400,
+      "declaredFieldsConsistent": true,
+      "dataBytesDeclared": 149124,
+      "dataBytesAvailable": 149124,
+      "dataFitsFile": true
+    },
+    "perChannel": [
+      {
+        "index": 0,
+        "dcOffset": 0.020841715619216224,
+        "dcDbfs": -33.62133068509765,
+        "dcSegments": [
+          0.0723176,
+          0,
+          0,
+          0,
+          0.0944206,
+          0,
+          0,
+          0
+        ],
+        "dcSegmentMaxAbs": 0.0944206008583691,
+        "dcSegmentsMatchingOverallSign": 2,
+        "dcConcentration": 4.530366049679355,
+        "dcSilent": {
+          "windowMs": 50,
+          "hopMs": 25,
+          "windowCount": 32,
+          "silentWindowCount": 28,
+          "informative": true,
+          "maxSilentAbsDc": 0,
+          "maxSilentDcDbfs": null,
+          "maxSilentRmsDbfs": -180,
+          "sampleSilentMeans": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "truePeak": 1,
+        "truePeakDbfs": 0,
+        "clippedSamples": 777,
+        "samplesOverFullScale": 0,
+        "maxBoundaryDelta": 0,
+        "maxBoundaryDeltaDbfs": null,
+        "interiorP999": 0,
+        "interiorP999Dbfs": null,
+        "boundaryCount": 291,
+        "outlierBoundaryCount": 0,
+        "outlierBoundaries": [],
+        "legacyLatticeVerdict": "WITHIN-INTERIOR-P999",
+        "latticeGate": {
+          "informative": false,
+          "exceedanceCount": 0,
+          "poissonLambda": 0.291,
+          "poissonAllowed": 3,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": false,
+          "verdict": "UNINFORMATIVE"
+        }
+      }
+    ],
+    "trim": {
+      "thresholdDbfs": -60,
+      "expectedMs": 0,
+      "firstAudibleMs": 0,
+      "offsetMs": 0,
+      "leadingSilenceMs": 0,
+      "trailingSilenceMs": 330.22675736961446
+    },
+    "sha": "02c91f1ff730ebbab8c3731ab5366781cf73aac2e1be468fea2f084865e1c695",
+    "modelDurationS": 0.8453741496598639,
+    "midiNotes": [
+      {
+        "tick": 275.07809523809556,
+        "pitch": 48
+      },
+      {
+        "tick": 406.5959183673476,
+        "pitch": 50
+      },
+      {
+        "tick": 554.5534693877553,
+        "pitch": 52
+      },
+      {
+        "tick": 691.5512018140598,
+        "pitch": 53
+      }
+    ]
+  },
+  "exportGuard": {
+    "policy": "as-is",
+    "targetDbfs": -1,
+    "samplePeak": 1.2086318731307983,
+    "measuredPeakDbfs": 1.6458808590183271,
+    "overFullScale": true,
+    "scaledByDb": 0,
+    "warning": "Export sample peak is 1.208632 (+1.65 dBFS), over 0 dBFS. It will clip on any integer DAC; scale it or export as-is knowingly."
+  },
+  "parserCrossCheck": {
+    "independentReader": "window.app.storage.probeMedia → probeWav (TASK-021)",
+    "independentProbe": {
+      "bytes": 149168,
+      "channels": 1,
+      "sampleRate": 44100,
+      "bitsPerSample": 32,
+      "frames": 37281,
+      "durationS": 0.8453741496598639,
+      "peak": 1,
+      "nonZeroSamples": 777,
+      "sha256": "02c91f1ff730ebbab8c3731ab5366781cf73aac2e1be468fea2f084865e1c695"
+    },
+    "agree": {
+      "channels": true,
+      "sampleRate": true,
+      "frames": true,
+      "truePeak": true
+    }
+  },
+  "evaluation": {
+    "export": {
+      "kind": "export",
+      "maxSilentAbsDc": 0.00006322042318371806,
+      "silentWindows": [
+        53,
+        53
+      ],
+      "uniformBiasSegments": [
+        "4/8",
+        "4/8"
+      ],
+      "dcPass": true,
+      "samplePeak": 1.2086318731307983,
+      "samplesOverFullScale": 500,
+      "latticeVerdicts": [
+        "PASS",
+        "PASS"
+      ],
+      "latticePass": true,
+      "trimOffsetMs": 5.986394557823132,
+      "trimPass": true
+    },
+    "normalized": {
+      "kind": "export",
+      "maxSilentAbsDc": 0.00004661903496694703,
+      "silentWindows": [
+        55,
+        55
+      ],
+      "uniformBiasSegments": [
+        "4/8",
+        "4/8"
+      ],
+      "dcPass": true,
+      "samplePeak": 0.8912509083747864,
+      "samplesOverFullScale": 0,
+      "latticeVerdicts": [
+        "PASS",
+        "PASS"
+      ],
+      "latticePass": true,
+      "trimOffsetMs": 5.986394557823132,
+      "trimPass": true
+    },
+    "take": {
+      "kind": "take",
+      "maxSilentAbsDc": 0,
+      "silentWindows": [
+        28
+      ],
+      "uniformBiasSegments": [
+        "2/8"
+      ],
+      "dcPass": true,
+      "samplePeak": 1,
+      "samplesOverFullScale": 0,
+      "latticeVerdicts": [
+        "UNINFORMATIVE"
+      ],
+      "latticePass": true,
+      "trimOffsetMs": 0,
+      "trimPass": null
+    }
+  },
+  "validation": {
+    "mandate": "R-8d — the repaired criteria are validated on the SAME audio evidence: the SB-007-B record is read back and re-judged under the repaired rules, and a fresh render of the same factory Song is judged alongside it.",
+    "source": "docs/evidence/sb007b/forensics.json",
+    "FND_01": {
+      "ruling": "R-9 (real audio defect — the guard is the fix; the mix itself is TASK-054's maintainer call, P-15)",
+      "before": {
+        "criterion": "clippedSamples === 0",
+        "verdict": "FAIL (real)",
+        "samplePeak": 1.208632230758667,
+        "measuredPeakDbfs": 1.645883429127397,
+        "samplesOverFullScale": 250
+      },
+      "after": {
+        "criterion": "as-is carries a measurable warning AND normalized delivery lands within ±0.1 dB with 0 clipped samples",
+        "verdict": "PASS",
+        "asIsSamplePeak": 1.2086318731307983,
+        "asIsPeakDbfs": 1.6458808590183271,
+        "asIsWarning": "Export sample peak is 1.208632 (+1.65 dBFS), over 0 dBFS. It will clip on any integer DAC; scale it or export as-is knowingly.",
+        "normalizedPeakDbfs": -1.0000002900227403,
+        "normalizedDeltaDb": -2.9002274026801445e-7,
+        "normalizedClipped": 0
+      }
+    },
+    "FND_02": {
+      "ruling": "R-8a (instrument defect, authored by the maintainer — whole-file DC is invalid on non-stationary music)",
+      "before": {
+        "criterion": "|whole-file DC| ≤ 1e-4",
+        "verdict": "FAIL (instrument)",
+        "wholeFileDc": 0.00012032131249150445,
+        "dcDbfs": -78.39314878692548,
+        "segmentMeans": [
+          0.0007076605,
+          0.0003696075,
+          -0.000217126,
+          -0.0002259989,
+          0.0002999367,
+          -0.0001030438,
+          0.0001315368,
+          0
+        ],
+        "uniformBiasCheck": "4/8 segments share the overall sign — a constant bias would show all of them"
+      },
+      "after": {
+        "criterion": "DC gated on 50 ms windows below −60 dBFS RMS only",
+        "verdict": "PASS",
+        "exportSilentWindows": [
+          53,
+          53
+        ],
+        "exportMaxSilentAbsDc": 0.00006322042318371806,
+        "takeSilentWindows": [
+          28
+        ],
+        "takeMaxSilentAbsDc": 0
+      }
+    },
+    "FND_03": {
+      "ruling": "R-8b (instrument defect, authored by the maintainer — a single interior percentile has a built-in false-positive rate)",
+      "before": {
+        "criterion": "outlierBoundaries.length === 0 vs the interior p99.9",
+        "verdict": "FAIL (instrument)",
+        "boundaryCount": 3309,
+        "exceedances": 5,
+        "expectedByChance": 3.309,
+        "poissonLambda": 3.309,
+        "poissonAllowed": 10,
+        "maxBoundaryDelta": 0.0688544511795044,
+        "interiorP999": 0.05940839648246765,
+        "absoluteFloor": 0.25
+      },
+      "after": {
+        "criterion": "Poisson count gate + ±1 s local-outlier gate; interiorP999 = 0 reported UNINFORMATIVE, never a silent pass",
+        "verdict": "PASS",
+        "exportGate": {
+          "informative": true,
+          "interiorP999": 0.059408366680145264,
+          "boundaryCount": 3309,
+          "exceedanceCount": 5,
+          "poissonLambda": 3.309,
+          "poissonAllowed": 10,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": true,
+          "verdict": "PASS"
+        },
+        "takeGate": {
+          "informative": false,
+          "interiorP999": 0,
+          "boundaryCount": 291,
+          "exceedanceCount": 0,
+          "poissonLambda": 0.291,
+          "poissonAllowed": 3,
+          "countPass": true,
+          "localCandidateCount": 0,
+          "localGuilty": [],
+          "localPass": true,
+          "pass": false,
+          "verdict": "UNINFORMATIVE"
+        }
+      }
+    },
+    "FND_04": {
+      "ruling": "R-8c (platform instrument defect — the fake device cannot exercise onset/trim)",
+      "before": {
+        "criterion": "take onset vs expected 0 ms, ±50 ms",
+        "verdict": "FAIL (instrument, non-deterministic: 0.0 / 446.4 / 0.0 ms across runs)"
+      },
+      "after": {
+        "criterion": "take peak ∈ [0.98, 1.0] + duration vs ARMED wall-clock ±150 ms; onset assertion DELETED; sub-step timing verified on the deterministic MIDI input path",
+        "verdict": "PASS",
+        "captureArmedWindowMs": 2908.5,
+        "nodeArmedWallMs": 2895,
+        "trimmedCountInRegionMs": 2063.125850340136,
+        "countInMs": 2033.8983050847457,
+        "expectedTakeMs": 874.6016949152543,
+        "measuredTakeMs": 845.3741496598639,
+        "durationDeltaMs": -29.227545255390396,
+        "midiNotes": 4,
+        "midiTickDeltas": [
+          131.51782312925206,
+          147.95755102040766,
+          136.99773242630454
+        ],
+        "expectedTickDelta": 132.16000000000003
+      }
+    }
+  },
+  "criteriaNotMet": [],
+  "verdict": "PASS",
+  "disclosure": "PROXY, and a deliberately limited one. The take is Chromium's fake media device, which emits a short full-scale square burst inside digital silence: the peak/duration criteria are meaningful, but the burst train makes the take's DC and lattice numbers weak (the lattice gate reports UNINFORMATIVE when the interior p99.9 is 0, rather than passing silently). The export's DC, lattice and trim checks are the meaningful ones. Neither file has been heard by anyone: HV-DEFERRED-01 is narrowed, not cleared."
+}

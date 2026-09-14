@@ -129,6 +129,16 @@ export function Scope() {
           <Row k="sample rate" v={`${engine.ctx ? (engine.ctx.sampleRate / 1000).toFixed(1) : "—"} kHz`} />
           <Row k="rta latency" v={`${status.latencyMs} ms`} />
           <Row k="underruns" v={String(status.underruns)} />
+          {/* TASK-030: the ring makes a count diagnosable — cause, moment and
+              where the transport thought it was (P-07, P-14). */}
+          <Row
+            k="last xrun"
+            v={
+              engine.xruns().length === 0
+                ? "none"
+                : `${engine.xruns()[engine.xruns().length - 1].cause} @ ${engine.xruns()[engine.xruns().length - 1].wallMs} ms`
+            }
+          />
           <Row k="tempo" v={`${song.qpm} qpm`} />
           <div className="micro" style={{ marginTop: 6 }}>
             0 vu line drawn at −18 dbfs · p-07 honest numbers

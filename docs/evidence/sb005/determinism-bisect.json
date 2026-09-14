@@ -1,0 +1,197 @@
+{
+  "proxy": "PROXY — headless Chromium via playwright.launch, about:blank, OfflineAudioContext 2ch @44.1 kHz, raw float32 bytes hashed with FNV-1a 32-bit.",
+  "runs": 5,
+  "sampleRate": 44100,
+  "shortLen": 44100,
+  "longLen": 423529,
+  "generatedBy": "tests/preview/determinism-bisect.mjs",
+  "results": {
+    "ladderA": {
+      "A0-silence": {
+        "hashes": [
+          "c88f0d05",
+          "c88f0d05",
+          "c88f0d05",
+          "c88f0d05",
+          "c88f0d05"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0
+      },
+      "A1-constant-gain": {
+        "hashes": [
+          "e139be46",
+          "e139be46",
+          "e139be46",
+          "e139be46",
+          "e139be46"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.4094148576259613
+      },
+      "A2-osc-gain": {
+        "hashes": [
+          "eadd5940",
+          "eadd5940",
+          "eadd5940",
+          "eadd5940",
+          "eadd5940"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.4549047350883484
+      },
+      "A3-osc-biquad-gain": {
+        "hashes": [
+          "25a12d38",
+          "25a12d38",
+          "25a12d38",
+          "25a12d38",
+          "25a12d38"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.45976075530052185
+      },
+      "A4-two-osc-biquad-panner-gain": {
+        "hashes": [
+          "614bc68e",
+          "614bc68e",
+          "614bc68e",
+          "614bc68e",
+          "614bc68e"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.13524441421031952
+      },
+      "A5-buffer-hp-lp-gain": {
+        "hashes": [
+          "1e33cc27",
+          "1e33cc27",
+          "1e33cc27",
+          "1e33cc27",
+          "1e33cc27"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.3676764667034149
+      },
+      "A6-full-chain-osc": {
+        "hashes": [
+          "5455fdea",
+          "5455fdea",
+          "5455fdea",
+          "5455fdea",
+          "5455fdea"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.7708901762962341
+      }
+    },
+    "ladderB": {
+      "B1-one-osc-9.6s": {
+        "hashes": [
+          "ee0f81e6",
+          "ee0f81e6",
+          "ee0f81e6",
+          "ee0f81e6",
+          "ee0f81e6"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.11950855702161789
+      },
+      "B2-16-osc-9.6s": {
+        "hashes": [
+          "cbe53c54",
+          "cbe53c54",
+          "cbe53c54",
+          "cbe53c54",
+          "cbe53c54"
+        ],
+        "distinct": 1,
+        "stable": true,
+        "maxDiff": 0,
+        "maxDbfs": null,
+        "peak": 0.13967737555503845
+      },
+      "B3-64-osc-9.6s": {
+        "hashes": [
+          "030576a0",
+          "27f05fa5",
+          "9ec9d2a1",
+          "94fef53c",
+          "523a6d87"
+        ],
+        "distinct": 5,
+        "stable": false,
+        "maxDiff": 2.9802322387695312e-8,
+        "maxDbfs": -150.5149978319906,
+        "peak": 0.26401305198669434
+      },
+      "B4-256-osc-9.6s": {
+        "hashes": [
+          "370635b1",
+          "de47f47c",
+          "3954cb83",
+          "537ed36a",
+          "c99a8344"
+        ],
+        "distinct": 5,
+        "stable": false,
+        "maxDiff": 0.00005879998207092285,
+        "maxDbfs": -84.61245612694677,
+        "peak": 0.6547018885612488
+      },
+      "B5-256-noise-9.6s": {
+        "hashes": [
+          "fa4ed2c7",
+          "2925af06",
+          "c6d26a79",
+          "8bf425cc",
+          "fbd3decf"
+        ],
+        "distinct": 5,
+        "stable": false,
+        "maxDiff": 2.980232238769531e-7,
+        "maxDbfs": -130.5149978319906,
+        "peak": 0.8633175492286682
+      },
+      "B6-1024-osc-9.6s": {
+        "hashes": [
+          "83821c4f",
+          "d92b6eae",
+          "db6b8360",
+          "d2712c08",
+          "9e8511cc"
+        ],
+        "distinct": 5,
+        "stable": false,
+        "maxDiff": 0.0005775094032287598,
+        "maxDbfs": -64.76881880059115,
+        "peak": 1.4230536222457886
+      }
+    }
+  },
+  "verdict": "AT LEAST ONE GRAPH VARIES in-process"
+}

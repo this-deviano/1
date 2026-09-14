@@ -8,6 +8,7 @@ import { DEVICES } from "../../lib/model";
 import { useStatus } from "../../lib/status";
 import { cmdAddDevice, cmdRemoveUnit, cmdSetParam, cmdSetTrackGain, cmdSetTrackPan, cmdToggleUnit } from "../../lib/actions";
 import { GrainFader, GrainKnob, GrainMeter, toast } from "../primitives";
+import { MASTER_GAIN_DB } from "../../lib/engine";
 import { deviceDef } from "../../lib/model";
 
 export function Desk() {
@@ -27,13 +28,22 @@ export function Desk() {
         <div className="strip master">
           <div className="strip-top" style={{ background: "var(--grain-ember)" }} />
           <span className="micro">master</span>
-          <span className="value" style={{ fontSize: 11 }}>
-            −0.0 dB
+          {/* P-15/P-07: MASTER_GAIN is a real −0.92 dB move; printing "−0.0 dB"
+              here was a hidden gain move. The number is now the number. */}
+          <span
+            className="value"
+            style={{ fontSize: 11 }}
+            title="master bus gain (MASTER_GAIN) — applied identically in the live and offline graphs (TASK-015)"
+          >
+            {MASTER_GAIN_DB.toFixed(1)} dB
           </span>
           <GrainKnob label="trim" value={0} min={-24} max={6} def={0} onChange={() => toast("Master trim is fixed in the web MVP.", "ember")} />
           <div className="fader-stack">
-            <GrainMeter level={status.clipAvg} height={140} />
+            <GrainMeter level={status.clipAvg} hold={status.clipHold} height={140} readout />
           </div>
+          <span className="micro" style={{ textAlign: "center" }} title="numeric peak readout — mono master, honest to the sample (R-4b)">
+            peak dbfs · mono
+          </span>
           <span className="micro" style={{ textAlign: "center" }}>
             {status.latencyMs} ms rta
           </span>
@@ -142,7 +152,7 @@ function Strip({ trackId }: { trackId: string }) {
       <GrainKnob label="pan" size={24} min={-1} max={1} def={0} value={t.pan} onChange={(v) => cmdSetTrackPan(t.id, v)} />
       <div className="fader-stack">
         <GrainFader value={t.gain} length={140} label={`${t.name} fader`} onChange={(v) => cmdSetTrackGain(t.id, v)} />
-        <GrainMeter level={t.mute ? 0 : status.clipAvg} height={140} />
+        <GrainMeter level={t.mute ? 0 : status.clipAvg} hold={t.mute ? 0 : status.clipHold} height={140} />
       </div>
     </div>
   );
