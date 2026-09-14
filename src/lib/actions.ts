@@ -686,6 +686,11 @@ export function cmdCancelNewSong(): void {
 }
 
 function performNewSong() {
+  // FND-05 (SB-007-E): drop the dirty flag BEFORE the wipe. The Bench's P-20
+  // beforeunload flush re-writes the legacy mirror whenever dirty, so the
+  // reload below would resurrect the very Song New Song is destroying — the
+  // next boot would migrate it back via migrateFromLocalStorage.
+  setState({ dirty: false });
   clearSong();
   if (opfsAvailable()) {
     void (async () => {

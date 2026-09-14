@@ -1,5 +1,36 @@
 # WORKLOG — append-only
 
+## SB-007-E — 2026-09-14 (adjunct — PR-STAGING; the click's wrapper)
+
+- START (announced at session open, recorded here): TASK-057 sync & verify (blocking) → TASK-058
+  three gates → TASK-059 rulings branch → TASK-060 open the ratification PR → TASK-061 report &
+  stop. **No merges. No approvals. No edits-toward-merge (E-014 rails). `main` untouched by this
+  session; the ref only moves if the maintainer clicks.**
+- E-011 channel check: briefing labelled `[AGENT PROMPT]`; the maintainer rulings in it
+  (AMM-005-WITHDRAWN, E-014) are logged below under that label, not executed as maintainer-class
+  commands.
+- **Evidence over briefing, again — the train was NOT green at the tip.** The briefing's prior
+  state said battery 15/15; the TASK-058 run returned **14/15**: P-02-PROXY failed probing
+  `media/<sha>.wav` — “media file missing”. Root-caused in source before anything was staged:
+  the fresh-state reset is not durable across the reload it triggers. `Bench.tsx`'s P-20
+  `beforeunload` flush writes the legacy `luthier.song.v1` mirror whenever `dirty`; a take sets
+  `dirty`; `page.reload()` then re-persists the just-wiped Song; the next boot's
+  `migrateFromLocalStorage()` migrates it back into the empty OPFS (the page snapshot shows run
+  2's `Take 2`/`Audio Take 2` inside run 3's state). Run 3's harness `find()` then grabbed the
+  stale audio clip and probed a sha whose file run 3's reset had deleted.
+- **FND-05 (filed TASK-056): this is a product defect, not harness noise.** The product's own
+  `performNewSong()` has the identical sequence — `clearSong()` → `window.location.reload()`
+  with `dirty` still set — so New Song can resurrect the very Song it destroys via the same
+  flush/migrate chain. A reset that dies on the reload it triggers is a real bug wherever it
+  appears.
+- TASK-056 fix (minimal, two paths): `setState({ dirty: false })` BEFORE the wipe in
+  `performNewSong()` and `devapi.freshState()` — the tombstone silences the flush, so nothing is
+  resurrected and the next boot finds genuinely empty storage. Gates after the fix: tsc clean,
+  build ✓ (1.20 s), **battery 15/15** (`p-02-proxy.json`: runs `[3553, 3541, 3533] ms`, median
+  3542, spread 20). E-012 churn audit: zero tracked changes after the battery.
+- TASK-057 verification (before the fix was written): `origin/main` `ff21132`, MILESTONE `M1`,
+  strict ancestor; tip `614dd57c87f2…` on origin, 0/0 divergence, 37-commit train.
+
 ## SB-007-C — 2026-09-13 (adjunct — M1-DEBT CLEARANCE; gate-free, FINAL adjunct)
 
 - START (announced at session open, recorded here): TASK-050 criteria repair (R-8) → TASK-051 export

@@ -8,7 +8,7 @@
    Genesis §24: this is the seed of the test pyramid, not a sandbox-only artifact. */
 
 import type { Song } from "./model";
-import { getState, undoStats } from "./store";
+import { getState, setState, undoStats } from "./store";
 import { engine, PREROLL_S, wavBlob, EXPORT_TARGET_DBFS } from "./engine";
 import { getStatus } from "./status";
 import { cmdPersistHistory, cmdRestoreSnapshot, cmdToggleStep } from "./actions";
@@ -60,6 +60,12 @@ async function probeWav(bytes: ArrayBuffer): Promise<WavProbe> {
 
 /** Clear every luthier.* localStorage key and the OPFS root (P-02 fresh state). */
 async function freshState(): Promise<void> {
+  // FND-05 (SB-007-E): tombstone BEFORE the wipe. The Bench's P-20
+  // beforeunload flush writes the legacy mirror whenever dirty, so a page
+  // reload immediately after this reset would re-persist the wiped Song and
+  // the next boot's migrateFromLocalStorage would resurrect it (the exact
+  // resurrection P-02's fresh state forbids). dirty=false silences the flush.
+  setState({ dirty: false });
   for (const key of Object.keys(localStorage)) {
     if (key.startsWith("luthier.")) localStorage.removeItem(key);
   }
